@@ -1,0 +1,18 @@
+{
+  "id": "notification",
+  "name": "通知坞",
+  "kind": "Panel",
+  "category": "面板功能",
+  "version": "1.0.0",
+  "author": "timecolors",
+  "description": "ShoreHue 内置通知坞：聚合系统通知，支持打开来源应用与一键清空。",
+  "baseType": "Panel",
+  "parentKey": "panel-features",
+  "sourceKey": "panel-notification",
+  "permissions": [],
+  "official": true,
+  "files": [
+    "main.cs"
+  ],
+  "apiVersion": 1
+}

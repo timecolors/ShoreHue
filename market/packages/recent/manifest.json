@@ -1,0 +1,21 @@
+{
+  "id": "recent",
+  "name": "最近使用",
+  "kind": "Panel",
+  "category": "面板功能",
+  "version": "1.0.0",
+  "author": "timecolors",
+  "description": "ShoreHue 内置最近使用：一键打开最近使用的程序、文件与网页。",
+  "baseType": "Panel",
+  "parentKey": "panel-features",
+  "sourceKey": "panel-recent",
+  "permissions": [
+    "file",
+    "process"
+  ],
+  "official": true,
+  "files": [
+    "main.cs"
+  ],
+  "apiVersion": 1
+}

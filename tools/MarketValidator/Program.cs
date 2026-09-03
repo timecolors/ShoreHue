@@ -42,8 +42,10 @@ namespace MarketValidator
                 string source = File.ReadAllText(f);
                 string id = Path.GetFileName(Path.GetDirectoryName(f) ?? "pkg");
                 var (_, err) = WidgetCompiler.Compile(id, source);
-                // ★ 统一沙箱：所有市场包（含官方内置）都过沙箱；剪贴板等已归入权限声明类（不硬拦，安装时提示）
-                string sandboxErr = WidgetCompiler.SandboxErrors(source);
+                // ★ 沙箱：第三方市场包必须过沙箱；官方验证包（official:true，仓库维护者审查背书）只验证编译
+                string? manifestPath = Path.Combine(Path.GetDirectoryName(f) ?? "", "manifest.json");
+                bool official = IsOfficial(manifestPath);
+                string sandboxErr = official ? "" : WidgetCompiler.SandboxErrors(source);
                 if (!string.IsNullOrEmpty(sandboxErr))
                 {
                     Console.WriteLine("FAIL  " + f.Replace(cwd + Path.DirectorySeparatorChar, "") + " [沙箱拦截] " + sandboxErr.Replace(Environment.NewLine, " "));

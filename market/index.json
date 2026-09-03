@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-09-01",
+  "updatedAt": "2026-09-03",
   "marketBase": "https://cdn.jsdelivr.net/gh/timecolors/ShoreHue@master/market",
   "packages": [
     {
@@ -13,7 +13,9 @@
       "baseType": "Widget",
       "parentKey": "panel-widgets",
       "sourceKey": "widget-timer",
-      "permissions": []
+      "permissions": [],
+      "official": true,
+      "apiVersion": 1
     },
     {
       "id": "calculator",
@@ -26,7 +28,9 @@
       "baseType": "Widget",
       "parentKey": "panel-widgets",
       "sourceKey": "widget-calculator",
-      "permissions": []
+      "permissions": [],
+      "official": true,
+      "apiVersion": 1
     },
     {
       "id": "textai",
@@ -41,7 +45,9 @@
       "sourceKey": "widget-textai",
       "permissions": [
         "clipboard"
-      ]
+      ],
+      "official": true,
+      "apiVersion": 1
     },
     {
       "id": "clipboard",
@@ -56,7 +62,9 @@
       "sourceKey": "widget-clipboard",
       "permissions": [
         "clipboard"
-      ]
+      ],
+      "official": true,
+      "apiVersion": 1
     },
     {
       "id": "note",
@@ -69,7 +77,121 @@
       "baseType": "Widget",
       "parentKey": "panel-widgets",
       "sourceKey": "widget-note",
-      "permissions": []
+      "permissions": [],
+      "official": true,
+      "apiVersion": 1
+    },
+    {
+      "id": "notification",
+      "name": "通知坞",
+      "kind": "Panel",
+      "category": "面板功能",
+      "version": "1.0.0",
+      "author": "timecolors",
+      "description": "ShoreHue 内置通知坞：聚合系统通知，支持打开来源应用与一键清空。",
+      "baseType": "Panel",
+      "parentKey": "panel-features",
+      "sourceKey": "panel-notification",
+      "permissions": [],
+      "official": true,
+      "files": [
+        "main.cs"
+      ],
+      "apiVersion": 1
+    },
+    {
+      "id": "recent",
+      "name": "最近使用",
+      "kind": "Panel",
+      "category": "面板功能",
+      "version": "1.0.0",
+      "author": "timecolors",
+      "description": "ShoreHue 内置最近使用：一键打开最近使用的程序、文件与网页。",
+      "baseType": "Panel",
+      "parentKey": "panel-features",
+      "sourceKey": "panel-recent",
+      "permissions": [
+        "file",
+        "process"
+      ],
+      "official": true,
+      "files": [
+        "main.cs"
+      ],
+      "apiVersion": 1
+    },
+    {
+      "id": "quicksettings",
+      "name": "快捷设置",
+      "kind": "Panel",
+      "category": "面板功能",
+      "version": "1.0.0",
+      "author": "timecolors",
+      "description": "ShoreHue 内置快捷设置：音量 / 亮度 / 蓝牙 / Wi-Fi / 省电等快速开关。",
+      "baseType": "Panel",
+      "parentKey": "panel-features",
+      "sourceKey": "panel-quicksettings",
+      "permissions": [],
+      "official": true,
+      "files": [
+        "main.cs"
+      ],
+      "apiVersion": 1
+    },
+    {
+      "id": "taskbar-feature",
+      "name": "任务栏",
+      "kind": "Panel",
+      "category": "面板功能",
+      "version": "1.0.0",
+      "author": "timecolors",
+      "description": "ShoreHue 内置任务栏（薄封装版）：快捷方式 / 运行中窗口 / 拖拽排序，可外层自定义。",
+      "baseType": "Panel",
+      "parentKey": "panel-features",
+      "sourceKey": "panel-taskbar-feature",
+      "permissions": [],
+      "official": true,
+      "files": [
+        "main.cs"
+      ],
+      "apiVersion": 1
+    },
+    {
+      "id": "ai",
+      "name": "AI 助手",
+      "kind": "Panel",
+      "category": "面板功能",
+      "version": "1.0.0",
+      "author": "timecolors",
+      "description": "ShoreHue 内置 AI 助手（薄封装版）：流式对话 / Markdown / 文件上传 / 输出到光标。",
+      "baseType": "Panel",
+      "parentKey": "panel-features",
+      "sourceKey": "panel-ai",
+      "permissions": [],
+      "official": true,
+      "files": [
+        "main.cs"
+      ],
+      "apiVersion": 1
+    },
+    {
+      "id": "windowcontrol",
+      "name": "窗口控制",
+      "kind": "Panel",
+      "category": "面板功能",
+      "version": "1.0.0",
+      "author": "timecolors",
+      "description": "ShoreHue 内置窗口操作中心（薄封装版）：最小化 / 最大化 / 关闭 / 置顶。",
+      "baseType": "Panel",
+      "parentKey": "panel-features",
+      "sourceKey": "panel-windowcontrol",
+      "permissions": [],
+      "official": true,
+      "files": [
+        "main.cs"
+      ],
+      "apiVersion": 1
     }
-  ]
+  ],
+  "apiVersion": 1
 }

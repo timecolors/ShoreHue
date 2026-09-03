@@ -16,5 +16,6 @@
     "main.cs",
     "TextAiWidget.xaml",
     "TextAiWidget.xaml.cs"
-  ]
+  ],
+  "apiVersion": 1
 }

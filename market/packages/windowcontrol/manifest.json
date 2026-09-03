@@ -1,0 +1,18 @@
+{
+  "id": "windowcontrol",
+  "name": "窗口控制",
+  "kind": "Panel",
+  "category": "面板功能",
+  "version": "1.0.0",
+  "author": "timecolors",
+  "description": "ShoreHue 内置窗口操作中心（薄封装版）：最小化 / 最大化 / 关闭 / 置顶。",
+  "baseType": "Panel",
+  "parentKey": "panel-features",
+  "sourceKey": "panel-windowcontrol",
+  "permissions": [],
+  "official": true,
+  "files": [
+    "main.cs"
+  ],
+  "apiVersion": 1
+}

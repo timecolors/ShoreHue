@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 
 namespace ShoreHue.UI.Seabed
 {
@@ -1791,10 +1791,22 @@ namespace ShoreHue.Builtin
     {
         public TaskbarPanel()
         {
-            // 从服务容器取内置服务（运行在 ShoreHue 内时已注册）
+            // 从服务容器取内置服务（运行在 ShoreHue 内时已注册；独立验证环境无服务时显示占位而非崩溃）
             var shortcuts = ServiceManager.Instance.GetService<ShortcutManager>() as IShortcutService;
             var settings = ServiceManager.Instance.GetService<SettingsManager>() as ISettingsService;
-            var inner = new TaskbarView(shortcuts!, settings!);
+            if (shortcuts == null || settings == null)
+            {
+                Content = new TextBlock
+                {
+                    Text = "任务栏需在 ShoreHue 应用内运行（服务未就绪）",
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(Color.FromRgb(138, 138, 138)),
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                return;
+            }
+            var inner = new TaskbarView(shortcuts, settings);
 
             // 示例：外层加一行自定义标题（不需要可删掉）
             var header = new TextBlock

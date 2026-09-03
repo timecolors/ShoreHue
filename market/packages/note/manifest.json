@@ -14,5 +14,6 @@
     "main.cs",
     "NoteWidget.xaml",
     "NoteWidget.xaml.cs"
-  ]
+  ],
+  "apiVersion": 1
 }

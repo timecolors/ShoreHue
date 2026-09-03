@@ -37,7 +37,9 @@ foreach (var kv in BuiltinFeatureSources.Sources)
         ["baseType"] = "Widget",
         ["parentKey"] = "panel-widgets",
         ["sourceKey"] = kv.Key,
-        ["permissions"] = WidgetPermissions.Detect(kv.Value)
+        ["permissions"] = WidgetPermissions.Detect(kv.Value),
+        ["apiVersion"] = 1,
+        ["official"] = true
     };
     File.WriteAllText(Path.Combine(dir, "manifest.json"),
         JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }),
@@ -47,9 +49,12 @@ foreach (var kv in BuiltinFeatureSources.Sources)
 }
 
 // 生成 index.json
+// ★ 警告：本工具仅为初始批量导出设计；重跑会覆盖 index.json 丢弃已发布第三方包与 official 标记。
+//   后续维护请用应用内放流（保留字段）或手工编辑 index.json。
 var index = new Dictionary<string, object?>
 {
     ["updatedAt"] = DateTime.Now.ToString("yyyy-MM-dd"),
+    ["apiVersion"] = 1,
     ["marketBase"] = "https://cdn.jsdelivr.net/gh/timecolors/ShoreHue@master/market",
     ["packages"] = packages
 };

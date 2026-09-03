@@ -16,5 +16,6 @@
     "main.cs",
     "ClipboardHistoryWidget.xaml",
     "ClipboardHistoryWidget.xaml.cs"
-  ]
+  ],
+  "apiVersion": 1
 }

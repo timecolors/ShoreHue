@@ -1,0 +1,18 @@
+{
+  "id": "ai",
+  "name": "AI 助手",
+  "kind": "Panel",
+  "category": "面板功能",
+  "version": "1.0.0",
+  "author": "timecolors",
+  "description": "ShoreHue 内置 AI 助手（薄封装版）：流式对话 / Markdown / 文件上传 / 输出到光标。",
+  "baseType": "Panel",
+  "parentKey": "panel-features",
+  "sourceKey": "panel-ai",
+  "permissions": [],
+  "official": true,
+  "files": [
+    "main.cs"
+  ],
+  "apiVersion": 1
+}

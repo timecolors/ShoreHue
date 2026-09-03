@@ -1,0 +1,18 @@
+{
+  "id": "taskbar-feature",
+  "name": "任务栏",
+  "kind": "Panel",
+  "category": "面板功能",
+  "version": "1.0.0",
+  "author": "timecolors",
+  "description": "ShoreHue 内置任务栏（薄封装版）：快捷方式 / 运行中窗口 / 拖拽排序，可外层自定义。",
+  "baseType": "Panel",
+  "parentKey": "panel-features",
+  "sourceKey": "panel-taskbar-feature",
+  "permissions": [],
+  "official": true,
+  "files": [
+    "main.cs"
+  ],
+  "apiVersion": 1
+}

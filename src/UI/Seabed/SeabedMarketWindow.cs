@@ -1,4 +1,4 @@
-﻿using ShoreHue.Core.Models;
+using ShoreHue.Core.Models;
 using ShoreHue.Core.Services.Configuration;
 using ShoreHue.UI.Widgets.Dynamic;
 using Microsoft.Win32;
@@ -20,8 +20,12 @@ namespace ShoreHue.UI.Seabed
     /// </summary>
     public sealed class SeabedMarketWindow : Window
     {
-        /// <summary>在线市场 CDN 根（仓库默认分支 master）。</summary>
+        /// <summary>在线市场 CDN 根。★ jsDelivr 生产建议用 @版本号 而非 @master（防 CDN 跟随分支滚动更新）；
+        /// 当前随 master 便于开发期即时验证，正式发布时随版本号切换为 @vX.Y.Z（见 docs/HANDOFF.md）。</summary>
         public const string MarketBase = "https://cdn.jsdelivr.net/gh/timecolors/ShoreHue@master/market";
+
+        /// <summary>本客户端支持的市场包协议版本（manifest.apiVersion）。未来包格式破坏性变更时 bump，旧客户端据此拒绝新包。</summary>
+        public const int SupportedApiVersion = 1;
 
         /// <summary>查看模式（Win11 资源管理器式）。</summary>
         private enum ViewMode { LargeIcon, SmallIcon, List, Details }
@@ -50,6 +54,9 @@ namespace ShoreHue.UI.Seabed
 
         // ★ 跟随系统主题（与设置窗口一致）：浅色白底 / 深色黑底
         private readonly Color _cBg, _cCard, _cText, _cSub, _cBorder;
+
+        // ★ 官方验证徽章色：暖金，浅色(#B8860B)与深色(#F5C542)主题下均清晰
+        private static readonly Color OfficialBadgeColor = Color.FromRgb(0xF5, 0xC5, 0x42);
 
         // ===== 详情页 =====
         private readonly Grid _detail = new() { Visibility = Visibility.Collapsed };
@@ -82,11 +89,15 @@ namespace ShoreHue.UI.Seabed
             public string Kind { get; set; } = "Widget";
             public string Category { get; set; } = "小组件";
             public string Version { get; set; } = "";
+            /// <summary>包协议版本（manifest.apiVersion；缺省 1）。</summary>
+            public int ApiVersion { get; set; } = 1;
             public string Author { get; set; } = "";
             public string Description { get; set; } = "";
             public List<string> Permissions { get; set; } = new();
             /// <summary>发布者 GitHub 数字 ID（删除时身份校验；老包可能为 null）。</summary>
             public long? PublisherId { get; set; }
+            /// <summary>官方验证（仓库维护者背书；index.json 中 official:true）。</summary>
+            public bool IsOfficial { get; set; }
             /// <summary>包内文件清单（manifest.files，下载端按此拉取）。</summary>
             public List<string> Files { get; set; } = new();
 
@@ -105,14 +116,42 @@ namespace ShoreHue.UI.Seabed
             }
 
             public string MetaLine =>
-                Id + " · " + Author +
+                (IsOfficial ? "★官方 · " : "") + Id + " · " + Author +
                 (string.IsNullOrEmpty(Version) ? "" : " · v" + Version) +
                 (Permissions.Count > 0 ? " · ⚠ " + string.Join(",", Permissions) : "");
 
             public string DetailLine =>
-                (Id + " · " + Author + (string.IsNullOrEmpty(Version) ? "" : " · v" + Version) +
+                ((IsOfficial ? "★官方 · " : "") + Id + " · " + Author + (string.IsNullOrEmpty(Version) ? "" : " · v" + Version) +
                  (Permissions.Count > 0 ? " · ⚠ " + string.Join(",", Permissions) : "")) +
                 (string.IsNullOrEmpty(Description) ? "" : System.Environment.NewLine + Description);
+
+            /// <summary>建议安装目录（海床 seabed 文件夹内相对路径；按 kind/分类映射）。</summary>
+            public string InstallDirLabel
+            {
+                get
+                {
+                    string folder = Kind == "Widget" ? "面板/小组件"
+                        : Kind == "Panel" ? "面板/面板功能"
+                        : Kind == "Full" ? "整套预设（设置 → 预设）"
+                        : "海床对应分类";
+                    return folder;
+                }
+            }
+
+            /// <summary>文件类型清单（按扩展名分组合并，如 XAML + 代码后置 / 纯 C#）。</summary>
+            public string FileTypesLabel
+            {
+                get
+                {
+                    var exts = Files.Select(f => System.IO.Path.GetExtension(f).ToLowerInvariant())
+                        .Where(x => x.Length > 1).Distinct().ToList();
+                    if (exts.Contains(".xaml") && exts.Contains(".cs")) return "XAML + 代码后置 (.xaml / .xaml.cs)";
+                    if (exts.Contains(".xaml")) return "XAML 界面 (.xaml)";
+                    if (exts.Contains(".json")) return "配置 / 预设 (.json)";
+                    if (exts.Count == 0) return Kind == "Full" ? "整套预设" : "纯 C# (.cs)";
+                    return string.Join(" / ", exts.Select(e2 => "." + e2.TrimStart('.')));
+                }
+            }
         }
 
         public SeabedMarketWindow(ShoreHue.UI.Settings.Pages.SeabedPage page)
@@ -387,6 +426,31 @@ namespace ShoreHue.UI.Seabed
             return result;
         }
 
+        /// <summary>构建包名称文本（官方验证包在名称后追加高亮「★官方」标记）。</summary>
+        private TextBlock BuildNameText(string name, bool isOfficial, double fontSize, FontWeight weight, Color color, bool wrap = false)
+        {
+            var tb = new TextBlock
+            {
+                FontSize = fontSize,
+                FontWeight = weight,
+                Foreground = new SolidColorBrush(color),
+                TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap,
+                TextTrimming = TextTrimming.CharacterEllipsis
+            };
+            tb.Inlines.Add(new System.Windows.Documents.Run(name));
+            if (isOfficial)
+            {
+                var badge = new System.Windows.Documents.Run("  ★官方")
+                {
+                    FontSize = Math.Max(9, fontSize - 1.5),
+                    FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(OfficialBadgeColor)
+                };
+                tb.Inlines.Add(badge);
+            }
+            return tb;
+        }
+
         /// <summary>手动构建包卡片/行（按视图模式）。</summary>
         private FrameworkElement BuildItemView(MarketItem item)
         {
@@ -402,7 +466,7 @@ namespace ShoreHue.UI.Seabed
                     Padding = new Thickness(8)
                 };
                 var sp = new StackPanel();
-                sp.Children.Add(new TextBlock { Text = item.Name, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(_cText), TextWrapping = TextWrapping.Wrap });
+                sp.Children.Add(BuildNameText(item.Name, item.IsOfficial, 12, FontWeights.SemiBold, _cText, wrap: true));
                 sp.Children.Add(new TextBlock { Text = item.MetaLine, FontSize = 10, Foreground = new SolidColorBrush(_cSub), Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap });
                 card.Child = sp;
                 return card;
@@ -433,15 +497,9 @@ namespace ShoreHue.UI.Seabed
                 var rp = new Grid();
                 rp.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 rp.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                rp.Children.Add(new TextBlock
-                {
-                    Text = item.Name,
-                    FontSize = 12,
-                    FontWeight = FontWeights.SemiBold,
-                    Foreground = new SolidColorBrush(_cText),
-                    VerticalAlignment = VerticalAlignment.Center,
-                    TextTrimming = TextTrimming.CharacterEllipsis
-                });
+                var nameTb = BuildNameText(item.Name, item.IsOfficial, 12, FontWeights.SemiBold, _cText);
+                nameTb.VerticalAlignment = VerticalAlignment.Center;
+                rp.Children.Add(nameTb);
                 rp.Children.Add(new TextBlock
                 {
                     Text = (item.Kind ?? "Widget") + " · " + item.Author + (string.IsNullOrEmpty(item.Version) ? "" : " · v" + item.Version),
@@ -463,7 +521,7 @@ namespace ShoreHue.UI.Seabed
                 Cursor = System.Windows.Input.Cursors.Hand
             };
             var dp = new StackPanel();
-            dp.Children.Add(new TextBlock { Text = item.Name, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(_cText) });
+            dp.Children.Add(BuildNameText(item.Name, item.IsOfficial, 12, FontWeights.SemiBold, _cText));
             dp.Children.Add(new TextBlock
             {
                 Text = item.Author + (string.IsNullOrEmpty(item.Version) ? "" : "  ·  v" + item.Version) +
@@ -736,8 +794,10 @@ namespace ShoreHue.UI.Seabed
                 // ★ 加载期间用户点了别的包：丢弃过期结果，避免显示内容与 _currentItem 不一致（误装/误删）
                 if (seq != _detailSeq) return;
 
-                _detailInfo.Text = item.Name + "  ·  " + item.Id +
-                    System.Environment.NewLine + "类型：" + item.FormatLabel +
+                _detailInfo.Text = (item.IsOfficial ? "★官方  " : "") + item.Name + "  ·  " + item.Id +
+                    System.Environment.NewLine + "文件类型：" + item.FileTypesLabel +
+                    System.Environment.NewLine + "建议安装到：" + item.InstallDirLabel +
+                    System.Environment.NewLine + "形态：" + item.FormatLabel +
                     System.Environment.NewLine + "文件：" + string.Join(" + ", item.Files.Select(f => f + "(" + (_detailFileSizes.TryGetValue(f, out var sz) ? sz : "?") + ")")) +
                     System.Environment.NewLine + "上传者：" + item.Author +
                     (string.IsNullOrEmpty(item.Version) ? "" : "  ·  v" + item.Version) +
@@ -767,6 +827,12 @@ namespace ShoreHue.UI.Seabed
         {
             try
             {
+                if (_currentItem == null) return;
+                if (_currentItem.ApiVersion > SupportedApiVersion)
+                {
+                    _status.Text = "此包需要更新版本的 ShoreHue（包协议 v" + _currentItem.ApiVersion + "，当前支持 v" + SupportedApiVersion + "）。请升级后重试。";
+                    return;
+                }
                 var result = new SeabedPackage.ImportResult
                 {
                     Name = !string.IsNullOrEmpty(_detailInfo.Text) ? _detailManifest : "未命名",
@@ -833,6 +899,7 @@ namespace ShoreHue.UI.Seabed
                             Name = GetStr(p, "name") ?? "未命名",
                             Kind = GetStr(p, "kind") ?? "Widget",
                             Version = GetStr(p, "version") ?? "",
+                            ApiVersion = p.TryGetProperty("apiVersion", out var av) && av.ValueKind == JsonValueKind.Number ? av.GetInt32() : 1,
                             Author = GetStr(p, "author") ?? "",
                             Description = GetStr(p, "description") ?? ""
                         };
@@ -851,6 +918,10 @@ namespace ShoreHue.UI.Seabed
                         if (p.TryGetProperty("publisherId", out var pid) && pid.ValueKind == JsonValueKind.Number)
                         {
                             item.PublisherId = pid.GetInt64();
+                        }
+                        if (p.TryGetProperty("official", out var off) && off.ValueKind == JsonValueKind.True)
+                        {
+                            item.IsOfficial = true;
                         }
                         if (!string.IsNullOrEmpty(item.Id)) _allPackages.Add(item);
                     }
@@ -889,6 +960,11 @@ namespace ShoreHue.UI.Seabed
         private async Task DownloadInstallAsync(MarketItem item)
         {
             if (!IsValidMarketId(item.Id)) { _status.Text = "包 id 非法，已拒绝下载"; return; }
+            if (item.ApiVersion > SupportedApiVersion)
+            {
+                _status.Text = "此包需要更新版本的 ShoreHue（包协议 v" + item.ApiVersion + "，当前支持 v" + SupportedApiVersion + "）。请升级后重试。";
+                return;
+            }
             try
             {
                 _status.Text = "正在拾贝「" + item.Name + "」…";

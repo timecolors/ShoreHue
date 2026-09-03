@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -437,6 +437,8 @@ namespace ShoreHue.UI.Seabed
                     ["parentKey"] = parentKey,
                     ["sourceKey"] = sourceKey,
                     ["permissions"] = permissions ?? new List<string>(),
+                    // ★ 包协议版本：客户端按此拒绝高于自身 SupportedApiVersion 的新包（防格式演进破坏旧客户端）
+                    ["apiVersion"] = 1,
                     // ★ 文件清单：下载端按此逐个拉取；形态 = 是否含 .xaml
                     ["files"] = allFiles.Select(f => f.Name).ToList()
                 };
@@ -488,7 +490,17 @@ namespace ShoreHue.UI.Seabed
                 foreach (var p in pkgs.EnumerateArray())
                 {
                     string? pid = p.TryGetProperty("id", out var idv) ? idv.GetString() : null;
-                    if (pid == id) { packages.Add(BuildPackageEntry(id, name, kind, category, version, author, description, baseType, parentKey, sourceKey, permissions)); replaced = true; }
+                    if (pid == id)
+                    {
+                        var rebuilt = BuildPackageEntry(id, name, kind, category, version, author, description, baseType, parentKey, sourceKey, permissions);
+                        // ★ 官方验证状态与协议版本随包保留：重新发布/更新不能抹掉 official / apiVersion
+                        if (p.TryGetProperty("official", out var off) && off.ValueKind == JsonValueKind.True)
+                            rebuilt["official"] = true;
+                        if (p.TryGetProperty("apiVersion", out var av) && av.ValueKind == JsonValueKind.Number)
+                            rebuilt["apiVersion"] = av.GetInt32();
+                        packages.Add(rebuilt);
+                        replaced = true;
+                    }
                     else packages.Add(ParseEntry(p));
                 }
             }
@@ -514,6 +526,7 @@ namespace ShoreHue.UI.Seabed
                 ["version"] = version, ["author"] = author, ["description"] = description,
                 ["baseType"] = baseType, ["parentKey"] = parentKey, ["sourceKey"] = sourceKey,
                 ["permissions"] = permissions ?? new List<string>(),
+                ["apiVersion"] = 1,
                 ["publisherId"] = GitHubMarketService.CurrentUserId ?? 0
             };
         }

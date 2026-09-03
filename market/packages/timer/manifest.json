@@ -14,5 +14,6 @@
     "main.cs",
     "TimerWidget.xaml",
     "TimerWidget.xaml.cs"
-  ]
+  ],
+  "apiVersion": 1
 }
