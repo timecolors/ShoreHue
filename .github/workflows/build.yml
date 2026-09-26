@@ -68,19 +68,30 @@ jobs:
           New-Item -ItemType Directory -Force -Path $p | Out-Null
           dotnet build tools/SmokeTest/SmokeTest.csproj -c Debug -o $p -v minimal
           if ($LASTEXITCODE -ne 0) { Write-Error "SmokeTest build failed"; exit 1 }
+          $resultFile = Join-Path $p "smoke-result.txt"
           $proc = Start-Process -FilePath (Join-Path $p "SmokeTest.exe") -WorkingDirectory $p -PassThru
-          $deadline = (Get-Date).AddSeconds(60)
+          $deadline = (Get-Date).AddSeconds(120)
           $result = $null
-          while ((Get-Date) -lt $deadline -and -not $proc.HasExited) {
+          # ★ 等的条件是"结果文件出现"，**不是"进程退出"**：SmokeTest 写出结果后才调 app.Shutdown()，
+          #   两者之间有个窗口期。旧写法把"结果已写出但进程还在跑"判成"60 秒超时"，
+          #   而 GitHub Actions 下 $ErrorActionPreference=Stop，第一条 Write-Error 就终止了整个步骤 ——
+          #   于是同一个提交一次绿一次红（2026-09-26 发 v1.1.1 时实际遇到：master 绿、tag 红）。
+          while ((Get-Date) -lt $deadline) {
+            if (Test-Path $resultFile) { $result = Get-Content $resultFile -ErrorAction SilentlyContinue; break }
+            if ($proc.HasExited) { break }
             Start-Sleep -Seconds 2
-            if (Test-Path (Join-Path $p "smoke-result.txt")) { $result = Get-Content (Join-Path $p "smoke-result.txt") -ErrorAction SilentlyContinue; break }
           }
-          if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force; Write-Error "SmokeTest timed out (60s), no result" }
-          elseif (-not $result) { $result = Get-Content (Join-Path $p "smoke-result.txt") -ErrorAction SilentlyContinue }
-          if (-not $result -or -not $result.StartsWith("SMOKE OK")) {
-            Write-Error "Smoke test failed: exit=$($proc.ExitCode) result=$result"
+          if (-not $result -and (Test-Path $resultFile)) { $result = Get-Content $resultFile -ErrorAction SilentlyContinue }
+          $state = if ($proc.HasExited) { "exit=$($proc.ExitCode)" } else { "still-running" }
+          if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          $text = ($result -join ' ').Trim()
+          if (-not $text.StartsWith("SMOKE OK")) {
+            # 失败时连进度文件一起打出来：否则只能看到"没有结果"，不知道卡在哪一步
+            Write-Output "---- smoke-progress.txt ----"
+            Get-Content (Join-Path $p "smoke-progress.txt") -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
+            Write-Error "Smoke test failed: $state result=$text"
           } else {
-            Write-Output $result
+            Write-Output $text
           }
 
   publish:
