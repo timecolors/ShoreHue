@@ -68,7 +68,7 @@ namespace ScreenshotGen
 
             // 6) 海床（AI 编程）界面
             var fakeSettings = new FakeSettings();
-            Render("06-Seabed.png", new ShoreHue.UI.Settings.Pages.SeabedPage(birdSettings), 880, 600, new Point(520, 150), outDir);
+            Render("06-Seabed.png", new ShoreHue.UI.Settings.Pages.SeabedPage(fakeSettings), 880, 600, new Point(520, 150), outDir);
         }
 
 
