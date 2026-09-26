@@ -1,4 +1,5 @@
 using System;
+using ShoreHue.Core.Infrastructure.Logging;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
@@ -48,7 +49,7 @@ namespace ShoreHue.Core.Services.Ai
             }
             catch (OperationCanceledException)
             {
-                return "连接超时";
+                return ShoreHue.UI.Localization.LocalizationManager.Instance["Ai_Timeout"];
             }
             catch (Exception ex)
             {
@@ -122,8 +123,56 @@ namespace ShoreHue.Core.Services.Ai
                     sb.Append(delta);
                     onDelta?.Invoke(delta);
                 }
+                else if (TryParseStreamError(payload, out string streamErr))
+                {
+                    // ★ 流中错误必须抛出来：OpenAI 兼容服务商在中途报错时发的是
+                    //   {"error":{...}} 或 choices 里带 finish_reason/error 的负载，**没有** delta.content。
+                    //   以前这类负载被 TryParseDelta 当成"没这个字段"静默忽略 →
+                    //   调用方拿到空串，把**一条空回复**当成正常回复渲染并写进会话历史，
+                    //   用户看到的是"AI 回了个空白"，完全不知道出了错。
+                    throw new InvalidOperationException("模型返回错误：" + streamErr);
+                }
             }
+            // 一个增量都没有：同样不能当成"正常但内容为空"，否则会污染会话历史
+            if (sb.Length == 0)
+                throw new InvalidOperationException("模型没有返回任何内容（服务商可能拒绝了该请求或响应格式不兼容）");
             return sb.ToString();
+        }
+
+        /// <summary>从流式负载里提取错误信息（{"error": …} 或 choices[0].error）。无错误返回 false。</summary>
+        private static bool TryParseStreamError(string payload, out string message)
+        {
+            message = "";
+            try
+            {
+                using var doc = JsonDocument.Parse(payload);
+                var root = doc.RootElement;
+                if (root.TryGetProperty("error", out var err))
+                {
+                    message = ExtractMessage(err);
+                    return message.Length > 0;
+                }
+                if (root.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array &&
+                    choices.GetArrayLength() > 0 && choices[0].TryGetProperty("error", out var cerr))
+                {
+                    message = ExtractMessage(cerr);
+                    return message.Length > 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                // 解析失败 → 交由调用方按"没有错误"处理（会话正文仍会走空回复保护）
+                LogManager.Debug($"[AI] 解析流式错误负载失败（按无错误处理）：{ex.Message}");
+            }
+            return false;
+        }
+
+        private static string ExtractMessage(JsonElement err)
+        {
+            if (err.ValueKind == JsonValueKind.String) return err.GetString() ?? "";
+            if (err.ValueKind == JsonValueKind.Object && err.TryGetProperty("message", out var m))
+                return m.GetString() ?? "";
+            return err.ToString();
         }
 
         /// <summary>
@@ -242,7 +291,11 @@ namespace ShoreHue.Core.Services.Ai
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：某个响应字段解析不出来就返回 null，调用方按"没有该字段"处理
+                LogManager.Debug($"[AI] 解析响应字段失败（按缺失处理）：{ex.Message}");
+            }
             return null;
         }
 

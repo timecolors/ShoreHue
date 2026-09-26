@@ -1,0 +1,2106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ShoreHue 海岸线 — 可编程的 Windows 边缘面板</title>
+<meta name="description" content="ShoreHue 海岸线：Windows 桌面边缘面板与可编程外骨骼。边缘任务栏、AI 助手、海床编程、在线市场。数据只留本机，免费无广告。">
+<link rel="icon" href="../packaging/Assets/Square44x44Logo.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============ 背景：色块 + 沙滩 + 程序化水面 ============ -->
+<div id="bg" aria-hidden="true">
+  <div class="blob blob-a"></div>
+  <div class="blob blob-b"></div>
+  <div class="blob blob-c"></div>
+  <div class="blob blob-d"></div>
+  <div class="sunlight"></div>
+  <div class="grain"></div>
+  <!-- 水面：Canvas 逐帧绘制，底层为不透明填充。
+       放在光照层之后，所以阳光只照沙滩，不会"洗"到水面。 -->
+  <div class="sea" id="sea">
+    <canvas id="seaCanvas"></canvas>
+  </div>
+</div>
+
+<!-- 启动遮罩 -->
+<div id="boot">
+  <div class="boot-inner">
+    <div class="boot-ring"></div>
+    <div class="boot-text">ShoreHue</div>
+  </div>
+</div>
+
+
+<!-- ============ 顶栏 ============
+     两个【兄弟】毛玻璃层负责背景（.pill-l / .pill-r），文字在它们之上。
+     之所以不用"父容器背景 + 内层胶囊"那种写法：backdrop-filter 会创建
+     backdrop root，父子同时使用会导致子元素的模糊作用错对象。
+     兄弟关系互不影响。首屏各为品牌/导航的尺寸，下滑时各伸到一半拼成一条。 -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <!-- 背景层：首屏是两个小胶囊（不带 blur），下滑时换成一块完整的主胶囊。
+         之所以不是"两块拼起来"：两个独立的 backdrop-filter 相邻必有接缝。 -->
+    <span class="pill-full" aria-hidden="true"></span>
+    <span class="pill pill-l" aria-hidden="true"></span>
+    <span class="pill pill-r" aria-hidden="true"></span>
+    <a class="brand" href="#top">
+      <img src="../packaging/Assets/Square150x150Logo.png" alt="" width="30" height="30">
+      <span class="brand-name">ShoreHue</span>
+      <span class="brand-cn">海岸线</span>
+    </a>
+    <nav class="topnav">
+      <a href="#features">功能</a>
+      <a href="#screens">截图</a>
+      <a href="#start">上手</a>
+      <a href="#privacy">隐私</a>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ============ 首屏 ============
+       只放"是什么 + 为什么值得装"，不放产品图。
+       理由：海床是页面最深处的内容（要潜到水下才看到），
+       把它放首屏既是剧透、又只能塞进半屏才放得下。
+       截图统一放到后面的「界面预览」，那里才是它们的正式位置。 -->
+  <section class="hero">
+    <div class="hero-head glass">
+      <p class="eyebrow">Windows 桌面边缘面板</p>
+      <h1 class="title">
+        <span class="title-en">ShoreHue</span>
+        <span class="title-cn">海岸线</span>
+      </h1>
+      <p class="lede">
+        把常用功能收进屏幕边缘，鼠标滑过即呼出，用完自动隐去。
+        它不只是一个工具箱，更是一层<b>可编程的外骨骼</b>——内置 AI 与在线市场，
+        让你和 AI 一起按需「长出」新功能。
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="https://apps.microsoft.com/detail/9PBR9CCTQXXN" target="_blank" rel="noopener">
+          从 Microsoft Store 获取
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/timecolors/ShoreHue/releases" target="_blank" rel="noopener">
+          GitHub Releases
+        </a>
+      </div>
+      <p class="meta">Windows 10 1809+ · x64 · 完全免费 · 无账号 · 无广告</p>
+    </div>
+  </section>
+
+  <!-- ============ 功能特性 ============ -->
+  <section class="section" id="features">
+    <div class="wrap">
+      <h2 class="sec-title">功能特性</h2>
+      <p class="sec-sub">屏幕的每一条边、每一个角，都可以是你自己的面板。</p>
+
+      <div class="grid">
+        <article class="card glass">
+          <div class="card-ico">▤</div>
+          <h3>边缘任务栏</h3>
+          <p>快捷方式与运行中的窗口常驻屏幕边缘，支持拖拽排序、关闭窗口、拖入即固定。</p>
+        </article>
+
+        <article class="card glass">
+          <div class="card-ico">◱</div>
+          <h3>应用辅助</h3>
+          <p>媒体控制、窗口镜像与嵌入（画中画）、本地视频播放，与 Windows 应用直接联动。</p>
+        </article>
+
+        <article class="card glass">
+          <div class="card-ico">▦</div>
+          <h3>小组件</h3>
+          <p>剪贴板历史、便签、计时器、科学计算器、划词翻译、网页……也能自己写。</p>
+        </article>
+
+        <article class="card glass">
+          <div class="card-ico">✦</div>
+          <h3>AI 助手</h3>
+          <p>左边缘呼出对话面板：流式回复、Markdown、快捷指令、历史记忆。API Key 只存本机，直连你选的服务商。</p>
+        </article>
+
+        <article class="card glass">
+          <div class="card-ico">⌘</div>
+          <h3>海床 · 编程模式</h3>
+          <p>配置即代码：每个设置节点都能生成可执行 C#；小组件支持完整 XAML 编程，保存即编译、实时预览。</p>
+        </article>
+
+        <article class="card glass">
+          <div class="card-ico">⛁</div>
+          <h3>在线市场</h3>
+          <p>预设与功能包一键安装。装前重新检测权限、风险弹窗确认、沙箱编译拦截危险 API。</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 界面预览（轮播）============
+       截图原始尺寸差异极大（1337×105 的任务栏 vs 1418×1068 的海床），
+       平铺在一屏里比例完全失控。改成统一画框的轮播：
+       每张都在同一尺寸的框里居中显示，配标题与说明，左右切换。 -->
+  <section class="section" id="screens">
+    <div class="wrap">
+      <h2 class="sec-title">界面预览</h2>
+      <p class="sec-sub">圆角深色面板，贴合 Windows 11 外观。左右滑动可切换。</p>
+
+      <div class="carousel" id="carousel">
+        <button class="car-btn car-prev" type="button" aria-label="上一张">‹</button>
+
+        <div class="car-track" id="carTrack">
+          <figure class="car-slide car-slide-wide">
+            <div class="car-media">
+              <!-- 顶部边缘任务栏：结构照 TaskbarView.xaml
+                   快捷方式 = 图标 28×28；窗口项 = 图标16 + 名称12px + 关闭钮18×18
+                   图标用 AppIcons.xaml 里的 Path（真实产品此处是各应用自身的图标，
+                   官网预览用同风格的线性图标代替，名称用示例） -->
+              <div class="tb">
+                <div class="tb-shortcuts">
+                  <span class="tb-ico" title="记事本">
+                    <svg viewBox="0 0 24 24"><path d="M6,3 h8 l4,4 v14 h-12 Z M14,3 v4 h4"/></svg>
+                  </span>
+                  <span class="tb-ico" title="计算器">
+                    <svg viewBox="0 0 24 24"><path d="M6,4 h12 v16 h-12 Z M6,9 h12 M9,4 v5 M15,4 v5 M9,13 h2 M13,13 h2 M9,16 h2 M13,16 h2"/></svg>
+                  </span>
+                  <span class="tb-ico" title="文件资源管理器">
+                    <svg viewBox="0 0 24 24"><path d="M3,6 h7 l2,2 h9 v11 h-18 Z"/></svg>
+                  </span>
+                  <span class="tb-ico" title="终端">
+                    <svg viewBox="0 0 24 24"><path d="M4,5 h16 v14 h-16 Z M7,9 l3,3 l-3,3 M13,15 h4"/></svg>
+                  </span>
+                </div>
+                <div class="tb-sep"></div>
+                <div class="tb-wins" data-tb-wins>
+                  <!-- 快捷方式（ShortcutTemplate）：Margin 2 / Padding 4 / 图标 28 -->
+                  <div class="tb-win" data-win>
+                    <i><svg viewBox="0 0 24 24"><path d="M6,3 h8 l4,4 v14 h-12 Z M14,3 v4 h4"/></svg></i>
+                    <span>文档 - 2026 年度计划</span>
+                    <!-- WindowTemplate 的关闭钮：Button 18×18 内放 IconClose(12×12) -->
+                    <b class="tb-x" title="关闭窗口">
+                      <svg viewBox="0 0 24 24"><path d="M6,6 L18,18 M18,6 L6,18"/></svg>
+                    </b>
+                  </div>
+                  <div class="tb-win" data-win>
+                    <i><svg viewBox="0 0 24 24"><path d="M12,4 a8,8 0 1,1 0,16 a8,8 0 1,1 0,-16 M4,12 h16 M12,4 a6,6 0 0,1 0,16 a6,6 0 0,1 0,-16"/></svg></i>
+                    <span>网页 - Microsoft Edge</span>
+                    <b class="tb-x" title="关闭窗口">
+                      <svg viewBox="0 0 24 24"><path d="M6,6 L18,18 M18,6 L6,18"/></svg>
+                    </b>
+                  </div>
+                  <div class="tb-win" data-win>
+                    <i><svg viewBox="0 0 24 24"><path d="M4,5 h16 v14 h-16 Z M7,9 l3,3 l-3,3 M13,15 h4"/></svg></i>
+                    <span>终端 - Windows PowerShell</span>
+                    <b class="tb-x" title="关闭窗口">
+                      <svg viewBox="0 0 24 24"><path d="M6,6 L18,18 M18,6 L6,18"/></svg>
+                    </b>
+                  </div>
+                  <!-- 分组（GroupTemplate）：#14FFFFFF 圆角6 Padding4 / 2×2 图标拼版 /
+                       计数角标 #CC000000 圆角6 Padding 3,0 Margin 0,0,-4,-4 字号 9 -->
+                  <div class="tb-group" data-group title="示例分组（3 个窗口）">
+                    <div class="tb-group-grid">
+                      <span><svg viewBox="0 0 24 24"><path d="M6,3 h8 l4,4 v14 h-12 Z M14,3 v4 h4"/></svg></span>
+                      <span><svg viewBox="0 0 24 24"><path d="M12,4 a8,8 0 1,1 0,16 a8,8 0 1,1 0,-16 M4,12 h16"/></svg></span>
+                      <span><svg viewBox="0 0 24 24"><path d="M4,5 h16 v14 h-16 Z M7,9 l3,3 l-3,3 M13,15 h4"/></svg></span>
+                      <span></span>
+                    </div>
+                    <b class="tb-group-count">3</b>
+                    <div class="tb-group-pop" data-group-pop hidden></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <figcaption>
+              <h3>边缘任务栏</h3>
+              <p>快捷方式与运行中的窗口常驻屏幕边缘，可拖拽排序、直接关闭。</p>
+              <ul>
+                <li>把任意快捷方式拖进来即固定</li>
+                <li>运行中的窗口可直接关闭</li>
+                <li>宽度可拖调，多显示器各自生效</li>
+              </ul>
+            </figcaption>
+          </figure>
+
+          <figure class="car-slide">
+            <div class="car-media">
+              <!-- 应用辅助：严格照 src/UI/AppHelper/AppHelperView.xaml —— 它是【分页视图】
+                     页头 = 标题(14 SemiBold) + 提示(10 #8A8A8A) + ◀ 页码 ▶（仅多页时显示）
+                     第 1 页 = 画中画（PanelMediaPlayer.xaml）
+                     第 2 页 = 媒体控制（MediaControlView.xaml） -->
+              <div class="ah" data-ah>
+                <div class="ah-head">
+                  <div class="ah-titles">
+                    <b data-ah-title>画中画</b>
+                    <span data-ah-hint>镜像窗口或播放视频文件</span>
+                  </div>
+                  <div class="ah-pager">
+                    <button type="button" data-ah-prev title="上一页">
+                      <svg viewBox="0 0 24 24"><path d="M8,5 L19,12 L8,19 Z"/></svg>
+                    </button>
+                    <span data-ah-page>1/2</span>
+                    <button type="button" data-ah-next title="下一页">
+                      <svg viewBox="0 0 24 24"><path d="M6,5 L16,12 L6,19 Z M17,5 L19,5 L19,19 L17,19 Z"/></svg>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 第 1 页：画中画 -->
+                <div data-ah-pane="0">
+                  <div class="pip-stage">
+                    <div class="pip-empty">镜像窗口　·　嵌入窗口<br>鼠标滚轮可缩放镜像画面</div>
+                  </div>
+                  <div class="pip-tools">
+                    <button type="button" title="镜像窗口（画面显示，原窗口位置不变）">镜</button>
+                    <button type="button" title="嵌入窗口（真实窗口放进面板，第二块显示屏）">嵌</button>
+                    <button type="button" class="pip-stop" title="停止">
+                      <svg viewBox="0 0 24 24"><path d="M7,7 L17,7 L17,17 L7,17 Z"/></svg>
+                    </button>
+                    <span class="pip-title"></span>
+                  </div>
+                </div>
+
+                <!-- 第 2 页：媒体控制 -->
+                <div data-ah-pane="1" hidden>
+                  <div class="mc-bar">
+                    <span data-mc-status>有 2 个媒体会话</span>
+                    <button type="button" data-mc-refresh title="刷新">
+                      <svg viewBox="0 0 24 24"><path d="M20,12 a8,8 0 1,1 -2.3,-5.7 M20,4 v4 h-4"/></svg>
+                      <span>刷新</span>
+                    </button>
+                  </div>
+                  <div class="mc-list" data-mc-list></div>
+                </div>
+              </div>
+            </div>
+            <figcaption>
+              <h3>应用辅助 · 画中画</h3>
+              <p>把任意窗口镜像或嵌入到面板里，边看视频边干活。</p>
+              <ul>
+                <li>窗口镜像 / 嵌入（画中画）</li>
+                <li>媒体控制（QQ 音乐等）</li>
+                <li>本地视频播放</li>
+              </ul>
+            </figcaption>
+          </figure>
+
+          <figure class="car-slide">
+            <div class="car-media">
+              <!-- 结构严格对齐真实产品：
+                     · 外层 = WidgetSwitcher（固定头部 Tab 栏 / 滚动内容 / 固定底部 32）
+                     · Tab 按钮 = Height 28 / Padding 8,0 / 间距 8 / 图标右距 5 / FontSize 12
+                     · 图标 Path 取自 src/UI/Theme/AppIcons.xaml
+                     · 面板宽度 = XamlPreviewTemplate.DefaultDesignWidth (320)
+                     · 五个面板 = seabed/小组件/ 下各自的 XAML
+                     · 文案取自 src/UI/Localization/Strings.resx -->
+              <!-- 内容视图：骨架由脚本统一包装（见文件末尾的「面板骨架」），
+                     与真实产品一致 —— MainPanel / 状态栏 / 左侧交互竖条是所有视图共用的，
+                     不随内容切换而变。这里只放视图本体。 -->
+              <div class="wsw" data-wsw>
+                <div class="wsw-tabs">
+                  <button type="button" class="wsw-tab" data-tab="clipboard">
+                    <svg viewBox="0 0 24 24"><path d="M7,5 h10 a1,1 0 0,1 1,1 v14 h-12 v-14 a1,1 0 0,1 1,-1 Z M9,3 h6 v3 h-6 Z"/></svg>
+                    <span>剪贴板</span>
+                  </button>
+                  <button type="button" class="wsw-tab" data-tab="note">
+                    <svg viewBox="0 0 24 24"><path d="M6,4 h8 l4,4 v12 h-12 Z M14,4 v4 h4"/></svg>
+                    <span>便签</span>
+                  </button>
+                  <button type="button" class="wsw-tab" data-tab="timer">
+                    <svg viewBox="0 0 24 24"><path d="M12,5 a7,7 0 1,1 0,14 a7,7 0 1,1 0,-14 M12,9 L12,12 L14.5,13.5"/></svg>
+                    <span>计时</span>
+                  </button>
+                  <button type="button" class="wsw-tab on" data-tab="calc">
+                    <svg viewBox="0 0 24 24"><path d="M6,4 h12 v16 h-12 Z M6,9 h12 M9,4 v5 M15,4 v5 M9,13 h2 M13,13 h2 M9,16 h2 M13,16 h2"/></svg>
+                    <span>计算</span>
+                  </button>
+                  <button type="button" class="wsw-tab" data-tab="textai">
+                    <svg viewBox="0 0 24 24"><path d="M10.5,3.5 L11.8,8.2 L16.5,9.5 L11.8,10.8 L10.5,15.5 L9.2,10.8 L4.5,9.5 L9.2,8.2 Z M17.8,14 L18.4,16.6 L21,17.2 L18.4,17.8 L17.8,20.4 L17.2,17.8 L14.6,17.2 L17.2,16.6 Z"/></svg>
+                    <span>划词翻译</span>
+                  </button>
+                </div>
+
+                <div class="wsw-body">
+                  <!-- ① 剪贴板（ClipboardHistoryWidget.xaml）
+                       每条 = CheckBox + 收藏(☆/★) + 内容(12px #EEEEEE / LineHeight 16，hover 展开) + 删除(✕)
+                       内容用示例（真实数据要读系统剪贴板） -->
+                  <div class="wsw-pane" data-pane="clipboard" hidden>
+                    <div class="clip-search"><span>搜索历史…</span></div>
+                    <div class="clip-filters">
+                      <button type="button" class="cur">全部</button>
+                      <button type="button" class="pin">★收藏</button>
+                      <button type="button">文本</button>
+                      <button type="button">链接</button>
+                      <button type="button">图片</button>
+                      <button type="button">文件</button>
+                    </div>
+                    <div class="clip-list" data-clip-list></div>
+                  </div>
+
+                  <!-- ② 便签（NoteWidget.xaml）—— 真的能用：
+                       多张便签、编辑内容、新建、删除、置顶；
+                       标题 = 第一行（与真实实现一致），整块便签纸跟着当前便签颜色走 -->
+                  <div class="wsw-pane" data-pane="note" hidden>
+                    <div class="note-top">
+                      <div class="note-search"><span>搜索便签…</span></div>
+                      <button type="button" class="note-new" data-note-new title="新建便签（Ctrl+N）">＋</button>
+                    </div>
+                    <div class="note-chips" data-note-chips></div>
+                    <div class="note-editwrap">
+                      <div class="note-body" contenteditable="true" data-note-body spellcheck="false"></div>
+                      <!-- EmptyHintVisibility：便签数为 0 时显示（Note_EmptyHint） -->
+                      <div class="note-empty" data-note-empty hidden>还没有便签。点上面的「＋」新建；Ctrl+F 搜索；右键便签可置顶/换色；切换键在「设置 → 面板 → 便签」里配。</div>
+                    </div>
+                  </div>
+
+                  <!-- ③ 计时（TimerWidget.xaml）——
+                       行序与真实一致：模式(0) / 时间+状态(1) / 输入行(2) / 进度(3) / 控制(4)
+                       ApplyMode 的可见性规则：输入行=倒计时|闹钟；预设与进度=仅倒计时 -->
+                  <div class="wsw-pane" data-pane="timer" hidden>
+                    <div class="tm-modes">
+                      <button type="button" data-tmode="up">正计时</button>
+                      <button type="button" class="cur" data-tmode="down">倒计时</button>
+                      <button type="button" data-tmode="alarm">闹钟</button>
+                    </div>
+                    <div class="tm-time" data-tm-time>25:00</div>
+                    <div class="tm-state" data-tm-state>就绪</div>
+                    <!-- InputPanel：TextBox(DarkTextBox) + ":" + TextBox + 单位 -->
+                    <div class="tm-input" data-tm-input>
+                      <input type="text" value="0" data-tm-hour aria-label="小时">
+                      <span class="tm-colon">:</span>
+                      <input type="text" value="5" data-tm-min aria-label="分钟">
+                      <span class="tm-unit" data-tm-unit>分</span>
+                    </div>
+                    <div class="tm-progress" data-tm-progress><i data-tm-bar style="width:0"></i></div>
+                    <div class="tm-presets" data-tm-presets>
+                      <button type="button" data-sec="1500">25:00</button>
+                      <button type="button" data-sec="300">5:00</button>
+                      <button type="button" data-sec="600">10:00</button>
+                      <button type="button" data-sec="60">1:00</button>
+                    </div>
+                    <div class="tm-actions">
+                      <button type="button" class="tm-start" data-tm-start>▶ 开始</button>
+                      <button type="button" data-tm-reset>↺ 重置</button>
+                    </div>
+                  </div>
+
+                  <!-- ④ 计算（CalculatorWidget.xaml） -->
+                  <div class="wsw-pane" data-pane="calc">
+                    <div class="cal">
+                      <div class="cal-modes">
+                        <button type="button" class="cal-mode cal-accent">标准</button>
+                        <button type="button" class="cal-mode">科学</button>
+                        <button type="button" class="cal-mode">程序员</button>
+                      </div>
+                      <div class="cal-display">
+                        <div class="cal-expr" data-expr></div>
+                        <div class="cal-value" data-screen>0</div>
+                      </div>
+                <!-- 科学函数行：按键顺序与 CalculatorWidget.xaml 的 SciPanel 一致 -->
+                <div class="cal-sci" data-sci hidden>
+                  <button type="button" data-fn="sin">sin</button>
+                  <button type="button" data-fn="cos">cos</button>
+                  <button type="button" data-fn="tan">tan</button>
+                  <button type="button" data-fn="asin">asin</button>
+                  <button type="button" data-fn="acos">acos</button>
+                  <button type="button" data-fn="atan">atan</button>
+                  <button type="button" data-fn="sinh">sinh</button>
+                  <button type="button" data-fn="cosh">cosh</button>
+                  <button type="button" data-fn="tanh">tanh</button>
+                  <button type="button" data-fn="sqrt">√</button>
+                  <button type="button" data-fn="sqr">x²</button>
+                  <button type="button" data-op="pow">xʸ</button>
+                  <button type="button" data-fn="inv">1/x</button>
+                  <button type="button" data-fn="fact">n!</button>
+                  <button type="button" data-fn="pi">π</button>
+                  <button type="button" data-fn="e">e</button>
+                  <button type="button" data-fn="exp">eˣ</button>
+                  <button type="button" data-fn="pow10">10ˣ</button>
+                  <button type="button" data-fn="ln">ln</button>
+                  <button type="button" data-fn="log">log</button>
+                  <button type="button" data-deg>DEG</button>
+                </div>
+                <!-- 程序员行 -->
+                <div class="cal-prog" data-prog hidden>
+                  <div class="cal-prog-row">
+                    <button type="button" data-radix="16">HEX</button>
+                    <button type="button" data-radix="10">DEC</button>
+                    <button type="button" data-radix="8">OCT</button>
+                    <button type="button" data-radix="2">BIN</button>
+                  </div>
+                  <div class="cal-prog-row">
+                    <button type="button" data-op="&amp;">AND</button>
+                    <button type="button" data-op="|">OR</button>
+                    <button type="button" data-op="^">XOR</button>
+                    <button type="button" data-not>NOT</button>
+                    <button type="button" data-shift="l">&lt;&lt;</button>
+                    <button type="button" data-shift="r">&gt;&gt;</button>
+                  </div>
+                </div>
+                <div class="cal-keys" data-calc>
+                  <button type="button" data-k="C">C</button>
+                  <button type="button" data-k="±">±</button>
+                  <button type="button" data-k="%">%</button>
+                  <button type="button" data-k="÷" class="cal-op">÷</button>
+                  <button type="button" data-k="7">7</button>
+                  <button type="button" data-k="8">8</button>
+                  <button type="button" data-k="9">9</button>
+                  <button type="button" data-k="×" class="cal-op">×</button>
+                  <button type="button" data-k="4">4</button>
+                  <button type="button" data-k="5">5</button>
+                  <button type="button" data-k="6">6</button>
+                  <button type="button" data-k="−" class="cal-op">−</button>
+                  <button type="button" data-k="1">1</button>
+                  <button type="button" data-k="2">2</button>
+                  <button type="button" data-k="3">3</button>
+                  <button type="button" data-k="+" class="cal-op">+</button>
+                  <button type="button" data-k="0">0</button>
+                  <button type="button" data-k=".">.</button>
+                  <button type="button" data-k="⌫">⌫</button>
+                  <button type="button" data-k="=" class="cal-accent">=</button>
+                </div>
+                    </div>
+                  </div>
+
+                  <!-- ⑤ 划词翻译（TextAiWidget.xaml） -->
+                  <div class="wsw-pane" data-pane="textai" hidden>
+                    <div class="ta-head">
+                      <b>划词翻译</b>
+                      <button type="button">⚙ 设置</button>
+                    </div>
+                    <div class="ta-card">
+                      <div class="ta-label">选中文本</div>
+                      <div class="ta-src">把常用功能收进屏幕边缘，鼠标滑过即呼出，用完自动隐去。</div>
+                    </div>
+                    <div class="ta-card">
+                      <div class="ta-row">
+                        <span class="ta-label">译文</span>
+                        <span class="ta-state">已翻译 · 中 → 英</span>
+                        <button type="button">复制</button>
+                      </div>
+                      <div class="ta-out">Keep your everyday tools tucked into the screen edge — glide the cursor over and they appear, then slip away on their own.</div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 固定底部：Height 32 / Margin 0,8,0,0（对应 WidgetSwitcher 的 FooterPanel） -->
+                <div class="wsw-foot" data-foot>支持键盘输入</div>
+              </div>
+            </div>
+            <figcaption>
+              <h3 data-wc-title>小组件 · 计算器</h3>
+              <p data-wc-desc>随面板呼出，用完即走，不占任务栏。<b>左边这个可以点。</b></p>
+              <ul data-wc-list>
+                <li>标准 / 科学 / 程序员三种模式</li>
+                <li>支持键盘直接输入</li>
+                <li>也可换成剪贴板、便签、划词翻译</li>
+              </ul>
+            </figcaption>
+          </figure>
+
+          <figure class="car-slide">
+            <div class="car-media">
+              <!-- AI 助手：严格照 src/UI/AI/AiChatView.xaml
+                     头部图标 = IconAi（LineIconAccent：描边 #4CA1FF）
+                     按钮文案取自 Strings.resx：清空 / 新建 / 删除 / ⚙ 打开 AI 设置 / ⌨ 输出到光标
+                    （⚙ 与 ⌨ 在真实文案里就是字符，其余按钮是纯文字） -->
+              <div class="ai">
+                <div class="ai-head">
+                  <span class="ai-logo">
+                    <svg viewBox="0 0 24 24"><path d="M10.5,3.5 L11.8,8.2 L16.5,9.5 L11.8,10.8 L10.5,15.5 L9.2,10.8 L4.5,9.5 L9.2,8.2 Z M17.8,14 L18.4,16.6 L21,17.2 L18.4,17.8 L17.8,20.4 L17.2,17.8 L14.6,17.2 L17.2,16.6 Z"/></svg>
+                  </span>
+                  <div class="ai-titles">
+                    <b>AI 助手</b>
+                    <span>未配置（请到 设置 → AI 中启用）</span>
+                  </div>
+                  <button type="button" class="ai-ico" title="打开 AI 设置">⚙</button>
+                  <button type="button" class="ai-ico" title="清空当前对话消息">清空</button>
+                </div>
+                <div class="ai-session">
+                  <div class="ai-select">新会话</div>
+                  <button type="button" title="新建对话">新建</button>
+                  <button type="button" title="删除当前对话">删除</button>
+                </div>
+                <div class="ai-empty">
+                  <span class="ai-star">
+                    <svg viewBox="0 0 24 24"><path d="M10.5,3.5 L11.8,8.2 L16.5,9.5 L11.8,10.8 L10.5,15.5 L9.2,10.8 L4.5,9.5 L9.2,8.2 Z M17.8,14 L18.4,16.6 L21,17.2 L18.4,17.8 L17.8,20.4 L17.2,17.8 L14.6,17.2 L17.2,16.6 Z"/></svg>
+                  </span>
+                  <b>AI 尚未配置</b>
+                  <p>在 设置 → AI 中填写 OpenAI 兼容的服务商<br>（DeepSeek、Ollama 本地、SiliconFlow 等）与模型，即可开始对话</p>
+                  <button type="button" class="ai-cta">⚙ 打开 AI 设置</button>
+                </div>
+                <div class="ai-quick">
+                  <span class="ai-qlabel">快捷:</span>
+                  <button type="button">翻译</button>
+                  <button type="button">总结</button>
+                  <button type="button">解释代码</button>
+                  <button type="button">润色</button>
+                  <span class="ai-out">⌨ 输出到光标</span>
+                </div>
+                <!-- 输入行（AiChatView.xaml Grid.Row=4 / Margin 2,0,2,0）：
+                     输入框 Height 30 FontSize 12.5 + ↕展开(26×30) + 发送(58×30) + ■停止(30×30，默认隐藏) -->
+                <div class="ai-input">
+                  <div class="ai-field" contenteditable="true" data-ai-field></div>
+                  <button type="button" class="ai-expand" title="展开 / 收起输入框（多行输入）">↕</button>
+                  <div class="ai-sendwrap">
+                    <button type="button" class="ai-send">发送</button>
+                    <button type="button" class="ai-stop" title="停止生成" hidden>■</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <figcaption>
+              <h3>AI 助手</h3>
+              <p>左边缘呼出对话面板，随时问、随时收。</p>
+              <ul>
+                <li>流式回复 + Markdown 渲染</li>
+                <li>快捷指令：翻译 / 总结 / 解释代码 / 润色</li>
+                <li>API Key 只存本机，直连你选的服务商</li>
+              </ul>
+            </figcaption>
+          </figure>
+        </div>
+
+        <button class="car-btn car-next" type="button" aria-label="下一张">›</button>
+      </div>
+
+      <div class="car-dots" id="carDots"></div>
+    </div>
+  </section>
+
+  <!-- ============ 快速上手 ============ -->
+  <section class="section" id="start">
+    <div class="wrap">
+      <h2 class="sec-title">快速上手</h2>
+      <p class="sec-sub">装好就在托盘里待命，不打扰你。</p>
+
+      <ol class="steps">
+        <li class="glass">
+          <span class="step-n">1</span>
+          <div>
+            <h3>启动</h3>
+            <p>ShoreHue 驻留系统托盘，不占用任务栏。</p>
+          </div>
+        </li>
+        <li class="glass">
+          <span class="step-n">2</span>
+          <div>
+            <h3>呼出</h3>
+            <p>鼠标移到屏幕边缘或角落即弹出面板；离开后自动隐藏。</p>
+          </div>
+        </li>
+        <li class="glass">
+          <span class="step-n">3</span>
+          <div>
+            <h3>快捷键</h3>
+            <p><b>Ctrl+Alt+B</b> 随时呼出/隐藏；<b>Ctrl+1-9</b> 直达指定区域（数字环，需在设置中开启）。</p>
+          </div>
+        </li>
+        <li class="glass">
+          <span class="step-n">4</span>
+          <div>
+            <h3>长出你的功能</h3>
+            <p>在海床里写 C# / XAML，或让 AI 生成；也能从在线市场一键安装别人做好的。</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <!-- ============ 隐私与安全 ============ -->
+  <section class="section" id="privacy">
+    <div class="wrap">
+      <div class="privacy glass">
+        <h2 class="sec-title">数据只留在你的电脑里</h2>
+        <div class="privacy-grid">
+          <div>
+            <h3>本地存储</h3>
+            <p>所有配置与数据保存在 <code>%LOCALAPPDATA%\ShoreHue</code>，不上传云端。</p>
+          </div>
+          <div>
+            <h3>API Key 不外流</h3>
+            <p>AI 请求由本机直连你选择的模型服务商，没有中间服务器，也不需要账号。</p>
+          </div>
+          <div>
+            <h3>沙箱编译</h3>
+            <p>市场包安装时重新检测权限、风险弹窗确认，并在沙箱中编译以拦截危险 API。</p>
+          </div>
+          <div>
+            <h3>完全免费</h3>
+            <p>无广告、无内购、无账号体系。商店版与 GitHub 版数据目录统一，可无缝切换。</p>
+          </div>
+        </div>
+        <p class="privacy-links">
+          <a href="../docs/PRIVACY.md" target="_blank" rel="noopener">隐私政策</a>
+          <span>·</span>
+          <a href="../docs/SECURITY.md" target="_blank" rel="noopener">安全说明</a>
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 结尾 CTA ============ -->
+  <section class="section final">
+    <div class="wrap">
+      <div class="final-card glass">
+        <h2>把屏幕边缘用起来</h2>
+        <p>几十秒装好，之后就一直在那儿待命。</p>
+        <div class="cta">
+          <a class="btn btn-primary" href="https://apps.microsoft.com/detail/9PBR9CCTQXXN" target="_blank" rel="noopener">
+            从 Microsoft Store 获取
+          </a>
+          <a class="btn btn-ghost" href="https://github.com/timecolors/ShoreHue" target="_blank" rel="noopener">
+            查看源码
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 海床（页面最深处）============
+       滚动到最底部、且此时深水已铺满屏幕时，就"顺势下潜"到这里。
+       这一屏的背景不做实体色 —— 直接让 Canvas 画出的深水透上来，
+       所以观感是「潜到水下」，而不是「又一块网页背景」。 -->
+  <section class="seabed" id="seabed">
+    <div class="wrap seabed-inner">
+      <p class="seabed-depth">− 深水之下 −</p>
+      <h2 class="seabed-title">海床</h2>
+      <p class="seabed-lede">
+        屏幕边缘的那些面板，只是露出水面的部分。<br>
+        <b>海床</b>是它们的底层：整个 ShoreHue 的设置模型在这里被摊开成一张<b>配置树</b>，
+        每个节点都能生成可执行的 C# 代码，每个功能都能改写。
+        你不必接受作者给的那几个小组件 —— 你可以自己长。
+      </p>
+
+      <div class="seabed-grid">
+        <article>
+          <h3>配置即代码</h3>
+          <p>设置不是一堆开关，而是一棵可读、可改、可版本管理的配置树。每个节点都能生成对应的 C# 配置代码，逐字段带中文注释。</p>
+        </article>
+        <article>
+          <h3>单预设闭环</h3>
+          <p>保存当前节点 → 应用时编译执行、写回生效。被覆盖的内置设置会自动变灰，双击即可解除该处覆盖，原始值立刻回来。</p>
+        </article>
+        <article>
+          <h3>整套预设</h3>
+          <p>全量配置快照的保存 / 应用 / 删除。被预设覆盖的设置页、海床树、预设列表三处联动标记，一眼看出哪些被动过。</p>
+        </article>
+        <article>
+          <h3>完全编程</h3>
+          <p>小组件与面板支持完整的 <code>.xaml + .xaml.cs</code>（WPF 用户控件）——事件、数据绑定、样式全部可用，不只是填参数。</p>
+        </article>
+        <article>
+          <h3>实时预览</h3>
+          <p>VS Code 式的双编辑器 Tab 切换，保存即编译并即时预览；编译报错内联显示在编辑器里，不用切窗口看日志。</p>
+        </article>
+        <article>
+          <h3>功能模板</h3>
+          <p>计时器、计算器、划词翻译、剪贴板、便签等小组件模板，以及通知坞、最近使用、快捷设置等面板模板，可保存为变体后分配到任意区域。</p>
+        </article>
+        <article>
+          <h3>文件夹即真相源</h3>
+          <p>设置与功能按 常规 / 区域 / 面板 / 动画 组织成真实的文件夹与文件。直接用你惯用的编辑器改，保存即时生效——海床本身就是个可视化文件管理器。</p>
+        </article>
+        <article>
+          <h3>状态栏与动画插件</h3>
+          <p>写一个实现 <code>IStatusProvider</code> 的 C#（CPU 温度、网速…）放进 <code>seabed\状态栏\</code> 自动挂载；实现 <code>IAnimation</code> 放进 <code>seabed\动画\</code>，就能在设置里选作呼出动画。</p>
+        </article>
+        <article>
+          <h3>AI 协同</h3>
+          <p>描述需求 → AI 生成 C# → 编译 → 应用。海床内置「AI 编程指南」，讲清楚能做什么、不能做什么、两种模式与文件格式。</p>
+        </article>
+      </div>
+
+      <!-- 海床界面（只读预览）—— 替换原来的截图
+           结构照 src/UI/Settings/Pages/SeabedPage.xaml；配色照 SettingsWindow.xaml
+           （窗口 #F9F9F9 / 卡片 #FFFFFF / 文字 #1E1E1E，是浅色主题）
+           只读：代码用 <pre> 展示，写操作按钮仅作外观 -->
+      <figure class="seabed-shot glass">
+        <div class="sb">
+          <div class="sb-tree" data-sb-tree>
+            <div class="sb-filter"><span>🔍</span><i>搜索</i></div>
+            <ul class="sb-list" data-sb-list>
+              <li class="lv1">常规</li>
+              <li class="lv1">动画</li>
+              <!-- ⊕：占位行，在缩进位置创建同级新功能（Foreground #4A90D9 / 18×18 / FontSize 13） -->
+              <li class="lv2 add"><em>⊕</em>新建功能…</li>
+              <li data-node="2" class="lv2">尺寸形变<b>✕</b></li>
+              <li data-file="2:config" class="lv3">config.json<b>✕</b></li>
+              <li data-file="2:manifest" class="lv3">manifest.json<b>✕</b></li>
+              <li data-node="3" class="lv2">触发动画<b>✕</b></li>
+              <li data-file="3:config" class="lv3">config.json<b>✕</b></li>
+              <li data-file="3:manifest" class="lv3">manifest.json<b>✕</b></li>
+              <li data-node="4" class="lv2 cur">跟随飞行<b>✕</b></li>
+              <li data-file="4:config" class="lv3">config.json<b>✕</b></li>
+              <li data-file="4:manifest" class="lv3">manifest.json<b>✕</b></li>
+              <li data-node="5" class="lv2">延迟隐藏<b>✕</b></li>
+              <li data-file="5:config" class="lv3">config.json<b>✕</b></li>
+              <li data-file="5:manifest" class="lv3">manifest.json<b>✕</b></li>
+              <li class="lv1">面板</li>
+              <li class="lv2 add"><em>⊕</em>新建功能…</li>
+              <li data-node="6" class="lv2">任务栏<b>✕</b></li>
+              <li data-file="6:config" class="lv3">config.json<b>✕</b></li>
+              <li data-file="6:manifest" class="lv3">manifest.json<b>✕</b></li>
+            </ul>
+            <!-- 右键菜单（文件资源管理器语义，照 SeabedPage.xaml 的 ContextMenu） -->
+            <div class="sb-menu" data-sb-menu hidden>
+              <button type="button">新建文件…</button>
+              <button type="button">新建文件夹…</button>
+              <div class="sb-menu-sep"></div>
+              <button type="button">重命名…</button>
+              <button type="button">删除</button>
+              <button type="button">在资源管理器中打开</button>
+            </div>
+          </div>
+          <!-- GridSplitter：可拖动调整左树宽度（真实范围 140–420） -->
+          <div class="sb-splitter" data-sb-splitter title="拖动调整宽度"></div>
+          <div class="sb-edit">
+            <div class="sb-head"><b data-sb-title>跟随飞行</b><span data-sb-hint>配置目录：点开 config.json 编辑，或用「应用」写回设置</span></div>
+
+            <!-- 简单编程：单个编辑器（txtJsonEditor） -->
+            <pre class="sb-code" data-sb-code></pre>
+
+            <!-- 完全编程（xamlEditorPanel）：Tab 切 .xaml / .xaml.cs，
+                 下方 0.45* 高度是实时预览区（previewFrame） -->
+            <div class="sb-xaml" data-sb-xaml hidden>
+              <div class="sb-tabs">
+                <button type="button" class="on" data-xtab="xaml">.xaml（界面）</button>
+                <button type="button" data-xtab="cs">.xaml.cs（代码后置）</button>
+              </div>
+              <pre class="sb-code" data-xcode></pre>
+              <!-- GridSplitter Height 5：编辑器与预览之间可拖（真实 ResizeDirection=Rows） -->
+              <div class="sb-hsplit" data-sb-hsplit title="拖动调整高度"></div>
+              <div class="sb-preview-label">预览（实时渲染 .xaml）</div>
+              <div class="sb-preview" data-preview></div>
+            </div>
+
+            <div class="sb-status" data-sb-status>只读预览：这里不写盘，也不执行编译</div>
+            <div class="sb-actions">
+              <button type="button" title="校验当前编辑内容（不写盘）">编译</button>
+              <button type="button" title="把编辑器内容写回选中的真实文件">保存文件</button>
+              <button type="button">恢复</button>
+              <select data-sb-mode>
+                <option value="simple">简单编程</option>
+                <option value="xaml">完全编程</option>
+              </select>
+              <button type="button">复制 AI 提示词</button>
+              <button type="button">打开文件夹</button>
+              <button type="button">AI 编程指南</button>
+            </div>
+            <div class="sb-preset">
+              <div class="sb-prow">
+                <b>预设（可保存整套，也可保存单个预设）</b>
+                <button type="button">看看其他海床</button>
+              </div>
+              <p>「其他海床」共享平台：导出当前预设为 .shpkg 包分享（自动标注权限），导入他人包时提示风险权限。</p>
+              <div class="sb-prow">
+                <button type="button">保存整套</button>
+                <button type="button">保存当前预设</button>
+              </div>
+              <div class="sb-prow">
+                <select><option>默认预设</option></select>
+                <button type="button">应用预设</button>
+                <button type="button">删除预设</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <figcaption>海床 —— 左侧是配置树，右侧是编辑器与实时预览（可点左侧节点切换）</figcaption>
+      </figure>
+
+      <div class="seabed-close">
+        <h3>一句话</h3>
+        <p>
+          别的工具让你<b>配置</b>它；ShoreHue 让你<b>改写</b>它。
+          海床就是这个「改写」的入口——也是为什么它被放在页面最深处：
+          你得先潜下去，才看得到。
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 页脚 ============ -->
+  <footer class="footer">
+    <div class="wrap footer-inner">
+      <div class="footer-brand">
+        <img src="../packaging/Assets/Square44x44Logo.png" alt="" width="22" height="22">
+        <span>ShoreHue 海岸线</span>
+      </div>
+      <nav class="footer-nav">
+        <a href="https://apps.microsoft.com/detail/9PBR9CCTQXXN" target="_blank" rel="noopener">Microsoft Store</a>
+        <a href="https://github.com/timecolors/ShoreHue" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://github.com/timecolors/ShoreHue/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="../docs/PRIVACY.md" target="_blank" rel="noopener">隐私</a>
+        <a href="../docs/SECURITY.md" target="_blank" rel="noopener">安全</a>
+      </nav>
+      <p class="footer-note">Windows 10 1809+ · x64 · 免费无广告 · 数据仅存本机</p>
+    </div>
+  </footer>
+</main>
+
+<!-- 滚动提示（仅首屏显示） -->
+<div class="hint" id="hint">
+  <span class="hint-arrow">↓</span>
+  <span>滚动 · 潮水会涨落</span>
+</div>
+
+<!-- ============ 脚本 ============ -->
+<script src="js/scroll-physics.js"></script>
+<script src="js/glass-bg.js"></script>
+<script src="js/tuner.js"></script>
+<script>
+  (function () {
+    var boot = document.getElementById('boot');
+    var hint = document.getElementById('hint');
+    requestAnimationFrame(function () {
+      setTimeout(function () { if (boot) boot.classList.add('hidden'); }, 120);
+    });
+    var faded = false;
+    var topbar = document.querySelector('.topbar');
+    window.addEventListener('scroll', function () {
+      // 顶栏：滚动后补毛玻璃底
+      if (topbar) topbar.classList.toggle('scrolled', window.pageYOffset > 24);
+      if (faded) return;
+      faded = true;
+      if (hint) hint.classList.add('fade');
+    }, { passive: true });
+
+    /* ---------- 顶栏胶囊：把毛玻璃层的宽度对齐到实际内容 ----------
+       两个 .pill 是背景层，.brand / .topnav 是内容层。
+       首屏时背景必须和内容一样宽，否则胶囊会"包不住"或"留边"。
+       字体加载、语言、缩放都会改变内容宽度，所以实测而非写死。 */
+    (function () {
+      var inner = document.querySelector('.topbar-inner');
+      var brand = document.querySelector('.brand');
+      var nav = document.querySelector('.topnav');
+      if (!inner || !brand || !nav) return;
+
+      function sync() {
+        inner.style.setProperty('--pill-l-w', Math.round(brand.getBoundingClientRect().width) + 'px');
+        inner.style.setProperty('--pill-r-w', Math.round(nav.getBoundingClientRect().width) + 'px');
+      }
+
+      sync();
+      window.addEventListener('resize', sync);
+      // 字体加载完成后宽度会变，再同步一次
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(sync);
+      window.addEventListener('load', sync);
+    })();
+
+    /* ---------- 计算器面板：完整功能 ----------
+       逻辑逐条对齐 CalculatorWidget.xaml.cs，不是"看起来像"：
+         · 状态机 _left/_right/_pendingOp/_enteringNewNumber/_error
+         · InputDigit / InputDot / InputOperator / Calculate / Backspace / Clear
+         · Negate(-v) / Percent(v/100) / 除零→Error
+         · Format: 整数且<1e15 走 "0"，否则 G12；程序员模式走 FormatRadix
+         · 科学函数（含 DEG/RAD）、程序员位运算与进制
+         · 键盘输入（数字、四则、Enter、Backspace、Esc） */
+    (function () {
+      var root = document.querySelector('.cal');
+      if (!root) return;
+      var screen = root.querySelector('[data-screen]');
+      var exprEl = root.querySelector('[data-expr]');
+      var sciRow = root.querySelector('[data-sci]');
+      var progRow = root.querySelector('[data-prog]');
+      var degBtn = root.querySelector('[data-deg]');
+      var modeBtns = root.querySelectorAll('.cal-mode');
+      var radixBtns = root.querySelectorAll('[data-radix]');
+
+      var ERR = '错误';
+      var left = 0, right = 0, pendingOp = '', enteringNew = true, error = false;
+      var mode = 'standard', radix = 10, useDeg = true;
+
+      /* --- Format(v)：对应 C# 的 Format --- */
+      function format(v) {
+        if (!isFinite(v)) return ERR;
+        var isInt = Math.abs(v - Math.round(v)) < 1e-12 && Math.abs(v) < 9.2e18;
+        if (mode === 'programmer' && isInt) return formatRadix(Math.round(v));
+        if (isInt && Math.abs(v) < 1e15) return String(Math.round(v));
+        return String(parseFloat(v.toPrecision(12)));
+      }
+      /* --- FormatRadix(v)：0x / 0o / 0b / 十进制 --- */
+      function formatRadix(v) {
+        if (radix === 16) return '0x' + (v < 0 ? '-' : '') + Math.abs(v).toString(16).toUpperCase();
+        if (radix === 8) return '0o' + (v < 0 ? '-' : '') + Math.abs(v).toString(8);
+        if (radix === 2) return '0b' + (v < 0 ? '-' : '') + Math.abs(v).toString(2);
+        return String(v);
+      }
+      /* --- TryReadDisplay：按前缀识别进制（C# 里踩过的坑，这里直接照做） --- */
+      function readDisplay() {
+        var t = screen.textContent || '';
+        var m = /^(0x|0o|0b)(.+)$/i.exec(t);
+        if (m) {
+          var base = m[1].toLowerCase() === '0x' ? 16 : m[1].toLowerCase() === '0o' ? 8 : 2;
+          var parsed = parseInt(m[2], base);
+          return isNaN(parsed) ? null : parsed;
+        }
+        var f = parseFloat(t);
+        return isNaN(f) ? null : f;
+      }
+      function setDisplay(v) { screen.textContent = typeof v === 'string' ? v : format(v); }
+      function setExpr(s) { if (exprEl) exprEl.textContent = s; }
+
+      /* --- 输入 --- */
+      function inputDigit(d) {
+        if (error) return;
+        if (enteringNew) { screen.textContent = d; enteringNew = false; }
+        else {
+          var t = screen.textContent;
+          if (t === '0') screen.textContent = d;
+          else if (t.length < 16) screen.textContent = t + d;
+        }
+      }
+      function inputDot() {
+        if (error) return;
+        if (enteringNew) { screen.textContent = '0.'; enteringNew = false; }
+        else if (screen.textContent.indexOf('.') < 0) screen.textContent += '.';
+      }
+      function inputOperator(op) {
+        if (error) return;
+        if (!enteringNew && pendingOp) calculate();
+        var v = readDisplay();
+        if (v !== null) left = v;
+        pendingOp = op;
+        enteringNew = true;
+        var shown = op === 'pow' ? '^' : op;
+        setExpr(format(left) + ' ' + shown);
+      }
+      function calculate() {
+        if (!pendingOp || error) return;
+        var r = readDisplay();
+        if (r === null) r = right;
+        right = r;
+        var res;
+        switch (pendingOp) {
+          case '+': res = left + right; break;
+          case '-': res = left - right; break;
+          case '*': res = left * right; break;
+          case '/': res = Math.abs(right) < 1e-12 ? NaN : left / right; break;
+          case '&': res = Math.round(left) & Math.round(right); break;
+          case '|': res = Math.round(left) | Math.round(right); break;
+          case '^': res = Math.round(left) ^ Math.round(right); break;
+          case 'pow': res = Math.pow(left, right); break;
+          default: res = right;
+        }
+        if (isNaN(res) || !isFinite(res)) {
+          error = true; screen.textContent = ERR; setExpr(''); pendingOp = ''; return;
+        }
+        var shown = pendingOp === 'pow' ? '^' : pendingOp;
+        setExpr(format(left) + ' ' + shown + ' ' + format(right) + ' =');
+        left = res;
+        setDisplay(res);
+        pendingOp = '';
+        enteringNew = true;
+      }
+      function doClear() {
+        left = 0; right = 0; pendingOp = ''; enteringNew = true; error = false;
+        setExpr(''); screen.textContent = '0';
+      }
+      function doBackspace() {
+        if (error || enteringNew) return;
+        var t = screen.textContent;
+        if (t.length > 1) screen.textContent = t.slice(0, -1);
+        else { screen.textContent = '0'; enteringNew = true; }
+      }
+      function doNegate() {
+        if (error) return;
+        var v = readDisplay();
+        if (v !== null) setDisplay(-v);
+      }
+      function doPercent() {
+        if (error) return;
+        var v = readDisplay();
+        if (v !== null) setDisplay(v / 100);
+      }
+
+      /* --- 科学函数 --- */
+      function factorial(n) {
+        if (n < 0 || n > 170) return NaN;
+        var r = 1;
+        for (var i = 2; i <= n; i++) r *= i;
+        return r;
+      }
+      function sciFn(fn) {
+        if (error) return;
+        var v = readDisplay(); if (v === null) v = 0;
+        var toRad = function (d) { return useDeg ? d * Math.PI / 180 : d; };
+        var fromRad = function (r) { return useDeg ? r * 180 / Math.PI : r; };
+        var out;
+        switch (fn) {
+          case 'sin': out = Math.sin(toRad(v)); break;
+          case 'cos': out = Math.cos(toRad(v)); break;
+          case 'tan': out = Math.tan(toRad(v)); break;
+          case 'asin': out = fromRad(Math.asin(v)); break;
+          case 'acos': out = fromRad(Math.acos(v)); break;
+          case 'atan': out = fromRad(Math.atan(v)); break;
+          case 'sinh': out = Math.sinh(v); break;
+          case 'cosh': out = Math.cosh(v); break;
+          case 'tanh': out = Math.tanh(v); break;
+          case 'sqrt': out = v < 0 ? NaN : Math.sqrt(v); break;
+          case 'sqr': out = v * v; break;
+          case 'inv': out = Math.abs(v) < 1e-12 ? NaN : 1 / v; break;
+          case 'pi': out = Math.PI; break;
+          case 'e': out = Math.E; break;
+          case 'exp': out = Math.exp(v); break;
+          case 'pow10': out = Math.pow(10, v); break;
+          case 'fact': out = factorial(Math.round(v)); break;
+          case 'ln': out = v <= 0 ? NaN : Math.log(v); break;
+          case 'log': out = v <= 0 ? Math.log10(v) : Math.log10(v); break;
+          default: out = v;
+        }
+        if (isNaN(out) || !isFinite(out)) {
+          error = true; screen.textContent = ERR; setExpr(''); return;
+        }
+        setDisplay(out);
+        enteringNew = true;
+      }
+
+      /* --- 模式切换（对应 SetMode） --- */
+      function setMode(m) {
+        mode = m;
+        Array.prototype.forEach.call(modeBtns, function (b) {
+          b.classList.toggle('cal-accent', b.getAttribute('data-mode') === m);
+        });
+        if (sciRow) sciRow.hidden = (m !== 'scientific');
+        if (progRow) progRow.hidden = (m !== 'programmer');
+        // 切到程序员模式时，把当前值按进制重绘
+        if (m === 'programmer') { var v = readDisplay(); if (v !== null) setDisplay(v); }
+      }
+
+      /* --- 点击分发 --- */
+      root.addEventListener('click', function (e) {
+        var b = e.target.closest('button');
+        if (!b || !root.contains(b)) return;
+
+        if (b.hasAttribute('data-k')) {
+          var k = b.getAttribute('data-k');
+          if (k === 'C') doClear();
+          else if (k === '⌫') doBackspace();
+          else if (k === '±') doNegate();
+          else if (k === '%') doPercent();
+          else if (k === '.') inputDot();
+          else if (k === '=') calculate();
+          else if ('÷×−+'.indexOf(k) >= 0) {
+            inputOperator(k === '÷' ? '/' : k === '×' ? '*' : k === '−' ? '-' : '+');
+          } else inputDigit(k);
+          return;
+        }
+        if (b.hasAttribute('data-fn')) { sciFn(b.getAttribute('data-fn')); return; }
+        if (b.hasAttribute('data-op')) { inputOperator(b.getAttribute('data-op')); return; }
+        if (b.hasAttribute('data-not')) {
+          if (error) return;
+          var v = readDisplay();
+          if (v !== null) { setDisplay(~Math.round(v)); enteringNew = true; }
+          return;
+        }
+        if (b.hasAttribute('data-shift')) {
+          if (error) return;
+          var sv = readDisplay(); if (sv === null) return;
+          var lv = Math.round(sv);
+          setDisplay(b.getAttribute('data-shift') === 'l' ? (lv << 1) : (lv >> 1));
+          enteringNew = true;
+          return;
+        }
+        if (b.hasAttribute('data-radix')) {
+          radix = parseInt(b.getAttribute('data-radix'), 10);
+          Array.prototype.forEach.call(radixBtns, function (x) { x.classList.toggle('cur', x === b); });
+          var rv = readDisplay(); if (rv !== null) setDisplay(rv);
+          return;
+        }
+        if (b.hasAttribute('data-deg')) {
+          useDeg = !useDeg;
+          b.textContent = useDeg ? 'DEG' : 'RAD';
+          return;
+        }
+        if (b.classList.contains('cal-mode')) {
+          setMode(b === modeBtns[0] ? 'standard' : b === modeBtns[1] ? 'scientific' : 'programmer');
+          return;
+        }
+      });
+
+      // 初始：标准模式高亮
+      if (modeBtns[0]) modeBtns[0].classList.add('cal-accent');
+      if (radixBtns[1]) radixBtns[1].classList.add('cur');
+
+      /* --- 键盘输入（对齐 Root_KeyDown，只保留常用键） --- */
+      root.tabIndex = 0;
+      root.addEventListener('keydown', function (e) {
+        var k = e.key;
+        if (k >= '0' && k <= '9') { inputDigit(k); e.preventDefault(); }
+        else if (k === '.') { inputDot(); e.preventDefault(); }
+        else if (k === '+') { inputOperator('+'); e.preventDefault(); }
+        else if (k === '-') { inputOperator('-'); e.preventDefault(); }
+        else if (k === '*') { inputOperator('*'); e.preventDefault(); }
+        else if (k === '/') { inputOperator('/'); e.preventDefault(); }
+        else if (k === 'Enter' || k === '=') { calculate(); e.preventDefault(); }
+        else if (k === 'Backspace') { doBackspace(); e.preventDefault(); }
+        else if (k === 'Escape' || k === 'Delete') { doClear(); e.preventDefault(); }
+      });
+    })();
+
+    /* ---------- 面板骨架（MainWindow.xaml 的 MainPanel）----------
+       真实产品里 MainPanel / SystemStatusContainer / 左侧交互竖条是【所有视图共用】的，
+       不随内容切换而变。所以这里统一给每个视图套同一套骨架，
+       而不是每个面板各写一份（也不会出现"只有某个面板有骨架"的不一致）。 */
+    (function () {
+      // SystemStatusView.xaml：时间(13 SemiBold) + 图标项(13 #AAAAAA)，
+      // 图标走 LineIcon（14×14 / stroke #AAAAAA / 粗细 1.8）
+      var ICONS = {
+        cpu: 'M8,4 L8,6 M12,4 L12,6 M16,4 L16,6 M8,18 L8,20 M12,18 L12,20 M16,18 L16,20 M4,8 L6,8 M4,12 L6,12 M4,16 L6,16 M18,8 L20,8 M18,12 L20,12 M18,16 L20,16 M7,7 L17,7 L17,17 L7,17 Z M10,10 L14,10 L14,14 L10,14 Z',
+        memory: 'M4,8 L20,8 L20,16 L4,16 Z M8,8 L8,16 M12,8 L12,16 M16,8 L16,16',
+        fps: 'M20,12 a8,8 0 1,1 -2.3,-5.7 M20,4 v4 h-4',
+        volume: 'M5,10 L9,10 L14,6 L14,18 L9,14 L5,14 Z M17,9 a4,4 0 0,1 0,6 M19.5,6.5 a7.5,7.5 0 0,1 0,11',
+        wifi: 'M4,9 a10,10 0 0,1 16,0 M7.5,12.5 a5.5,5.5 0 0,1 9,0 M12,16.5 l0.01,0',
+        battery: 'M4,9 L19,9 L19,15 L4,15 Z M20.5,11 L20.5,13 M6.5,11 L14,11 L14,13 L6.5,13 Z'
+      };
+      function item(icon, text) {
+        return '<span class="ps-item"><svg viewBox="0 0 24 24"><path d="' + ICONS[icon] +
+               '"/></svg><b>' + text + '</b></span>';
+      }
+      var STATUS =
+        '<span class="ps-time">12:34:56</span>' +
+        item('cpu', '45%') + item('memory', '62%') + item('fps', '60fps') +
+        item('volume', '75%') + item('wifi', '已连接') + item('battery', '85%');
+
+      Array.prototype.forEach.call(
+        document.querySelectorAll('.car-media > .tb, .car-media > .ah, .car-media > .wsw, .car-media > .ai'),
+        function (view) {
+          var panel = document.createElement('div');
+          panel.className = 'panel';
+          panel.innerHTML =
+            '<div class="panel-status">' + STATUS + '</div>' +
+            '<div class="panel-main">' +
+              '<div class="panel-rail" title="ShoreHue 交互区"></div>' +
+              '<div class="panel-content"></div>' +
+            '</div>';
+          view.parentNode.insertBefore(panel, view);
+          panel.querySelector('.panel-content').appendChild(view);
+        }
+      );
+    })();
+
+    /* ---------- 小组件面板：Tab 切换 ----------
+       切换时三处同步更新：面板本体、底部提示、右侧文字说明。
+       全部文案取自 src/UI/Localization/Strings.resx。 */
+    (function () {
+      var wsw = document.querySelector('[data-wsw]');
+      if (!wsw) return;
+      var tabs = wsw.querySelectorAll('.wsw-tab');
+      var panes = wsw.querySelectorAll('.wsw-pane');
+      var foot = wsw.querySelector('[data-foot]');
+      var capTitle = document.querySelector('[data-wc-title]');
+      var capDesc = document.querySelector('[data-wc-desc]');
+      var capList = document.querySelector('[data-wc-list]');
+      var capBox = capTitle ? capTitle.closest('figcaption') : null;
+      var capTimer = null;
+
+      var META = {
+        clipboard: {
+          foot: '剪贴板就绪',
+          title: '小组件 · 剪贴板',
+          desc: '复制过的文字、链接、图片、文件都留在这儿，随时翻回去。',
+          list: ['按类型过滤：文本 / 链接 / 图片 / 文件', '收藏与置顶，常用内容排在最前', '搜索历史，翻旧账不用再复制一遍']
+        },
+        note: {
+          foot: '便签 1/3',
+          title: '小组件 · 便签',
+          desc: '整块便签跟着当前便签的颜色走，标题就是第一行。',
+          list: ['搜索 + ＋ 新建，多张便签分类管理', '支持置顶与换色，颜色是「这张纸」的属性', '标题与正文合一，不会出现两套内容打架']
+        },
+        timer: {
+          // 注意：真实 TimerWidget.GetFooterControl() 返回空 StackPanel
+          // （源码注释：「用户要求：去掉底部提示行…保持面板简洁」），所以这里没有提示
+          foot: '',
+          title: '小组件 · 计时器',
+          desc: '正计时、倒计时与闹钟，到点提醒。<b>左边这个可以点。</b>',
+          list: ['常用时长一键预设（25 / 10 / 5 / 1 分钟）', '倒计时带进度条，剩余一眼看清', '三种模式各自独立，切换不打断正在跑的计时']
+        },
+        calc: {
+          foot: '支持键盘输入',
+          title: '小组件 · 计算器',
+          desc: '随面板呼出，用完即走，不占任务栏。<b>左边这个可以点。</b>',
+          list: ['标准 / 科学 / 程序员三种模式', '支持键盘直接输入', '也可换成剪贴板、便签、划词翻译']
+        },
+        textai: {
+          foot: '划词翻译：选中即译，API Key 只存本机',
+          title: '小组件 · 划词翻译',
+          desc: '选中的文字直接落进面板，译文出来就能复制走。',
+          list: ['原文与译文分栏显示，不来回切换', '一键复制译文', '服务商与 Key 在设置里配，只存本机']
+        }
+      };
+
+      function selectTab(key) {
+        Array.prototype.forEach.call(tabs, function (t) {
+          t.classList.toggle('on', t.getAttribute('data-tab') === key);
+        });
+        Array.prototype.forEach.call(panes, function (p) {
+          p.hidden = (p.getAttribute('data-pane') !== key);
+        });
+        var m = META[key];
+        if (!m) return;
+        if (foot) foot.textContent = m.foot;
+
+        /* 右侧说明：先淡出，换完文案再淡入。
+           连点时清掉上一个计时器，避免文案停在中间态。 */
+        var apply = function () {
+          if (capTitle) capTitle.textContent = m.title;
+          if (capDesc) capDesc.innerHTML = m.desc;
+          if (capList) {
+            capList.innerHTML = m.list.map(function (x) { return '<li>' + x + '</li>'; }).join('');
+          }
+          if (capBox) capBox.classList.remove('switching');
+        };
+        if (capBox) {
+          capBox.classList.add('switching');
+          clearTimeout(capTimer);
+          capTimer = setTimeout(apply, 170);
+        } else {
+          apply();
+        }
+      }
+
+      Array.prototype.forEach.call(tabs, function (t) {
+        t.addEventListener('click', function () { selectTab(t.getAttribute('data-tab')); });
+      });
+
+      /* ---------- 计时器：预设 / 开始 / 重置（对齐 TimerWidget 行为） ---------- */
+      var tmTime = wsw.querySelector('[data-tm-time]');
+      var tmState = wsw.querySelector('[data-tm-state]');
+      var tmBar = wsw.querySelector('[data-tm-bar]');
+      var tmStart = wsw.querySelector('[data-tm-start]');
+      var total = 1500, remain = 1500, running = false, tick = null;
+
+      function fmt(s) {
+        var mm = Math.floor(s / 60), ss = s % 60;
+        return (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
+      }
+      function paint() {
+        if (tmTime) tmTime.textContent = fmt(remain);
+        if (tmBar) tmBar.style.width = (total ? ((total - remain) / total * 100) : 0) + '%';
+      }
+      function stop() {
+        running = false;
+        if (tick) { clearInterval(tick); tick = null; }
+        if (tmStart) tmStart.textContent = '▶ 开始';
+      }
+      Array.prototype.forEach.call(wsw.querySelectorAll('.tm-presets button'), function (b) {
+        b.addEventListener('click', function () {
+          stop();
+          total = remain = parseInt(b.getAttribute('data-sec'), 10);
+          if (tmState) tmState.textContent = '就绪';
+          paint();
+        });
+      });
+      if (tmStart) tmStart.addEventListener('click', function () {
+        if (running) { stop(); if (tmState) tmState.textContent = '已暂停'; return; }
+        if (remain <= 0) remain = total;
+        running = true;
+        tmStart.textContent = '⏸ 暂停';
+        if (tmState) tmState.textContent = '计时中';
+        tick = setInterval(function () {
+          remain--;
+          if (remain <= 0) {
+            remain = 0; paint(); stop();
+            if (tmState) tmState.textContent = '时间到！';
+            return;
+          }
+          paint();
+        }, 1000);
+      });
+      var resetBtn = wsw.querySelector('[data-tm-reset]');
+      if (resetBtn) resetBtn.addEventListener('click', function () {
+        stop(); remain = total;
+        if (tmState) tmState.textContent = '就绪';
+        paint();
+      });
+      Array.prototype.forEach.call(wsw.querySelectorAll('.tm-modes button'), function (b) {
+        b.addEventListener('click', function () { applyMode(b.getAttribute('data-tmode')); });
+      });
+
+      /* ApplyMode：可见性随模式变（照 TimerWidget.ApplyMode）
+           输入行  = 倒计时 | 闹钟
+           预设    = 仅倒计时（PresetPanel）
+           进度条  = 仅倒计时（ProgressArea）
+           单位文字= 闹钟 ? "目标时间" : "分" */
+      var tmInput = wsw.querySelector('[data-tm-input]');
+      var tmPresets = wsw.querySelector('[data-tm-presets]');
+      var tmProgress = wsw.querySelector('[data-tm-progress]');
+      var tmUnit = wsw.querySelector('[data-tm-unit]');
+      function applyMode(m) {
+        Array.prototype.forEach.call(wsw.querySelectorAll('.tm-modes button'), function (x) {
+          x.classList.toggle('cur', x.getAttribute('data-tmode') === m);
+        });
+        var needInput = (m === 'down' || m === 'alarm');
+        if (tmInput) tmInput.hidden = !needInput;
+        if (tmPresets) tmPresets.hidden = (m !== 'down');
+        if (tmProgress) tmProgress.hidden = (m !== 'down');
+        if (tmUnit) tmUnit.textContent = (m === 'alarm') ? '目标时间' : '分';
+      }
+      applyMode('down');   // 真实默认 _mode = TimerMode.CountDown
+
+      /* ---------- 便签：真实可用的本地便签 ----------
+         与 NoteWidget 的行为一致：标题取第一行、整块纸跟着当前便签颜色、
+         可编辑 / 新建 / 删除 / 置顶。数据只活在内存里，刷新即还原。 */
+      (function () {
+        var pane = wsw.querySelector('[data-pane="note"]');
+        if (!pane) return;
+        var chipsBox = pane.querySelector('[data-note-chips]');
+        var body = pane.querySelector('[data-note-body]');
+        var newBtn = pane.querySelector('[data-note-new]');
+
+        // 便签纸颜色（真实产品里颜色是"这张纸"的属性，可换）
+        var COLORS = ['#FFD479', '#8CE0D0', '#4CC2FF', '#FFB0A0', '#C7B3FF'];
+        var notes = [
+          { color: '#FFD479', pinned: false, text: '购物清单\n· 咖啡豆\n· 燕麦奶\n· 记号笔' },
+          { color: '#8CE0D0', pinned: false, text: '会议要点\n· 下周三前提交设计稿' },
+          { color: '#4CC2FF', pinned: true,  text: '灵感\n· 边缘面板可以按深度分层' }
+        ];
+        var cur = 0;
+
+        function firstLine(t) {
+          var line = (t || '').split('\n')[0].trim();
+          return line || '空便签';
+        }
+        function renderChips() {
+          chipsBox.innerHTML = '';
+          notes.forEach(function (n, i) {
+            var chip = document.createElement('span');
+            chip.className = 'note-chip' + (i === cur ? ' cur' : '');
+            chip.innerHTML =
+              (n.pinned ? '<em class="note-pin">📌</em>' : '') +
+              '<i style="background:' + n.color + '"></i>' +
+              '<b class="note-txt"></b>' +
+              '<b class="note-x" title="关闭这张">✕</b>';
+            chip.querySelector('.note-txt').textContent = firstLine(n.text);
+            chip.addEventListener('click', function (e) {
+              if (e.target.classList.contains('note-x')) {      // 关闭这张
+                notes.splice(i, 1);
+                if (cur >= notes.length) cur = notes.length - 1;
+                if (cur < 0) cur = 0;
+                renderAll();                                     // 删光时 renderAll 会显示空状态提示
+                return;
+              }
+              cur = i;
+              renderAll();
+            });
+            chipsBox.appendChild(chip);
+          });
+        }
+        function renderAll() {
+          renderChips();
+          var n = notes[cur];
+          var emptyEl = pane.querySelector('[data-note-empty]');
+          // EmptyHintVisibility：没有便签时才显示提示
+          if (emptyEl) emptyEl.hidden = notes.length > 0;
+          // 底部状态：Note_Status = "便签 {当前}/{总数}"
+          // 只在便签这一屏可见时才写 footer，否则会盖掉其它 Tab 的提示
+          var f = wsw.querySelector('[data-foot]');
+          if (f && !pane.hidden) {
+            f.textContent = notes.length ? ('便签 ' + (cur + 1) + '/' + notes.length) : '便签 0/0';
+          }
+          if (!n) { body.textContent = ''; body.hidden = true; return; }
+          body.hidden = false;
+          pane.style.background = n.color;                       // 整块纸跟着当前便签颜色
+          body.textContent = n.text;
+        }
+
+        // 编辑：标题（芯片首行）跟着第一行实时变，与真实实现一致
+        body.addEventListener('input', function () {
+          var n = notes[cur];
+          if (!n) return;
+          n.text = body.textContent;
+          var chip = chipsBox.children[cur];
+          if (chip) chip.querySelector('.note-txt').textContent = firstLine(n.text);
+        });
+        // 双击芯片：置顶/取消置顶
+        chipsBox.addEventListener('dblclick', function (e) {
+          var chip = e.target.closest('.note-chip');
+          if (!chip) return;
+          var i = Array.prototype.indexOf.call(chipsBox.children, chip);
+          if (notes[i]) { notes[i].pinned = !notes[i].pinned; renderAll(); }
+        });
+        if (newBtn) newBtn.addEventListener('click', function () {
+          notes.push({ color: COLORS[notes.length % COLORS.length], pinned: false, text: '' });
+          cur = notes.length - 1;
+          renderAll();
+          body.focus();
+        });
+
+        renderAll();
+      })();
+
+      /* ---------- 应用辅助：分页 + 媒体控制 ----------
+         照 AppHelperView.ShowPage：切页时标题/提示/页码一起换，翻页控件仅多页时显示。
+         媒体会话是有真实数据才有意义的（要读系统 SMTC），所以列表用示例，
+         但播放/暂停/切歌这些按钮是可以点的。 */
+      (function () {
+        var ah = document.querySelector('[data-ah]');
+        if (!ah) return;
+        var PAGES = [
+          { title: '画中画', hint: '镜像窗口或播放视频文件' },
+          { title: '媒体控制', hint: '控制正在播放的 QQ 音乐、浏览器等应用' }
+        ];
+        var titleEl = ah.querySelector('[data-ah-title]');
+        var hintEl = ah.querySelector('[data-ah-hint]');
+        var pageEl = ah.querySelector('[data-ah-page]');
+        var panes = ah.querySelectorAll('[data-ah-pane]');
+        var idx = 0;
+
+        function show(i) {
+          idx = (i + PAGES.length) % PAGES.length;
+          titleEl.textContent = PAGES[idx].title;
+          hintEl.textContent = PAGES[idx].hint;
+          pageEl.textContent = (idx + 1) + '/' + PAGES.length;
+          Array.prototype.forEach.call(panes, function (p, k) { p.hidden = (k !== idx); });
+        }
+        ah.querySelector('[data-ah-prev]').addEventListener('click', function () { show(idx - 1); });
+        ah.querySelector('[data-ah-next]').addEventListener('click', function () { show(idx + 1); });
+
+        /* 媒体会话列表（示例数据；封面位用 ♪ 占位，与真实实现的默认占位一致） */
+        var SESSIONS = [
+          { app: 'QQ 音乐', title: '示例曲目 — 示例歌手', playing: true },
+          { app: 'Microsoft Edge', title: '示例网页音频 — 示例站点', playing: false }
+        ];
+        var listBox = ah.querySelector('[data-mc-list]');
+        var statusEl = ah.querySelector('[data-mc-status]');
+
+        function paint(scanning) {
+          // 初始/刷新时先显示"正在扫描系统媒体会话…"（UI_MediaControlView_37），
+          // 与真实实现一致：扫描完成后再换成结果
+          if (statusEl) {
+            statusEl.textContent = scanning
+              ? '正在扫描系统媒体会话…'
+              : '有 ' + SESSIONS.length + ' 个媒体会话';
+          }
+          listBox.innerHTML = '';
+          SESSIONS.forEach(function (s, i) {
+            var row = document.createElement('div');
+            row.className = 'mc-item' + (i === sel ? ' sel' : '');
+            row.innerHTML =
+              '<div class="mc-cover">♪</div>' +
+              '<div class="mc-meta"><span></span><b></b></div>' +
+              '<button type="button" title="上一首"><svg viewBox="0 0 24 24"><path d="M18,5 L8,12 L18,19 Z M5,5 L7,5 L7,19 L5,19 Z"/></svg></button>' +
+              '<button type="button" class="mc-play" title="播放/暂停"></button>' +
+              '<button type="button" title="下一首"><svg viewBox="0 0 24 24"><path d="M6,5 L16,12 L6,19 Z M17,5 L19,5 L19,19 L17,19 Z"/></svg></button>';
+            row.querySelector('.mc-meta span').textContent = s.app;
+            row.querySelector('.mc-meta b').textContent = s.title;
+            // IconPlay / IconPause
+            var glyph = s.playing
+              ? '<path d="M7,5 L10,5 L10,19 L7,19 Z M14,5 L17,5 L17,19 L14,19 Z"/>'
+              : '<path d="M8,5 L19,12 L8,19 Z"/>';
+            row.querySelector('.mc-play').innerHTML = '<svg viewBox="0 0 24 24">' + glyph + '</svg>';
+            row.querySelector('.mc-play').addEventListener('click', function (e) {
+              e.stopPropagation();
+              s.playing = !s.playing;
+              paint();
+            });
+            // 点行本身 = 选中（DarkListBox 的 IsSelected）
+            row.addEventListener('click', function () { sel = i; paint(); });
+            listBox.appendChild(row);
+          });
+        }
+        var sel = 0;
+        var refresh = ah.querySelector('[data-mc-refresh]');
+        if (refresh) refresh.addEventListener('click', function () {
+          paint(true);
+          setTimeout(function () { paint(); }, 620);   // 模拟一次扫描
+        });
+        paint();
+        show(0);
+      })();
+
+      /* ---------- 边缘任务栏：可试用 ----------
+         照 TaskbarView 的真实行为：
+           · 点窗口项 → 最小化 / 还原（这里用视觉状态表示）
+           · 点 ✕    → 关闭窗口（从栏上移除）
+           · 点快捷方式 → 启动（这里只给按下反馈）
+         真实数据（窗口标题、应用图标）来自系统，官网拿不到，所以用示例。 */
+      (function () {
+        var bar = document.querySelector('.tb');
+        if (!bar) return;
+        var wins = bar.querySelector('[data-tb-wins]');
+
+        // 窗口项：点击切换最小化；✕ 关闭并从栏上移除
+        wins.addEventListener('click', function (e) {
+          var row = e.target.closest('.tb-win');
+          if (!row) return;
+          if (e.target.classList.contains('tb-x')) {
+            row.remove();                       // 对应 WindowAction.Close
+            if (!wins.children.length) {
+              var empty = document.createElement('span');
+              empty.className = 'tb-empty';
+              empty.textContent = '没有运行中的窗口';
+              wins.appendChild(empty);
+            }
+            return;
+          }
+          row.classList.toggle('min');          // 对应 ToggleMinimize
+        });
+
+        // 快捷方式：按下反馈（真实行为是启动程序）
+        Array.prototype.forEach.call(bar.querySelectorAll('.tb-ico'), function (ico) {
+          ico.addEventListener('click', function () {
+            ico.classList.add('hit');
+            setTimeout(function () { ico.classList.remove('hit'); }, 220);
+          });
+        });
+
+        /* 分组：悬停展开成员列表（对应 Group_MouseEnter 里的弹层 AddWindowRow）
+           成员行 = 图标16 + 名称12 + ✕18，与栏上窗口项同一套度量 */
+        var group = bar.querySelector('[data-group]');
+        var pop = bar.querySelector('[data-group-pop]');
+        if (group && pop) {
+          var MEMBERS = ['文档 - 2026 年度计划', '网页 - Microsoft Edge', '终端 - Windows PowerShell'];
+          var ICONS = [
+            'M6,3 h8 l4,4 v14 h-12 Z M14,3 v4 h4',
+            'M12,4 a8,8 0 1,1 0,16 a8,8 0 1,1 0,-16 M4,12 h16',
+            'M4,5 h16 v14 h-16 Z M7,9 l3,3 l-3,3 M13,15 h4'
+          ];
+          pop.innerHTML = MEMBERS.map(function (name, i) {
+            return '<div class="tb-win"><i><svg viewBox="0 0 24 24"><path d="' + ICONS[i] +
+                   '"/></svg></i><span>' + name + '</span><b class="tb-x" title="关闭窗口">' +
+                   '<svg viewBox="0 0 24 24"><path d="M6,6 L18,18 M18,6 L6,18"/></svg></b></div>';
+          }).join('');
+          group.addEventListener('mouseenter', function () { pop.hidden = false; });
+          group.addEventListener('mouseleave', function () { pop.hidden = true; });
+        }
+      })();
+
+      /* ---------- 剪贴板：可点的本地列表 ----------
+         照 ClipboardHistoryWidget.xaml 的条目结构（CheckBox / ☆收藏 / 内容 / ✕删除）。
+         内容本身是示例 —— 真实数据需要读取系统剪贴板，官网不做这件事。 */
+      (function () {
+        var list = wsw.querySelector('[data-clip-list]');
+        if (!list) return;
+        var ITEMS = [
+          { text: '示例文本：把这条剪贴板内容替换成你自己的', pinned: true },
+          { text: 'https://example.com/docs/getting-started', pinned: false },
+          { text: '示例路径：D:\\Projects\\Demo\\readme.md', pinned: false },
+          { text: '示例命令：npm run build --mode production', pinned: false },
+          { text: '示例短句：记得在周会前把进度同步到文档里', pinned: false }
+        ];
+        function paint() {
+          list.innerHTML = '';
+          ITEMS.forEach(function (it, i) {
+            var row = document.createElement('div');
+            row.className = 'clip-row';
+            row.innerHTML =
+              '<input type="checkbox" class="clip-check">' +
+              '<button type="button" class="clip-pin" title="收藏">' + (it.pinned ? '★' : '☆') + '</button>' +
+              '<span class="clip-txt"></span>' +
+              '<button type="button" class="clip-del" title="删除">✕</button>';
+            row.querySelector('.clip-txt').textContent = it.text;
+            if (it.pinned) row.querySelector('.clip-pin').classList.add('on');
+            row.querySelector('.clip-pin').addEventListener('click', function (e) {
+              e.stopPropagation();
+              it.pinned = !it.pinned;
+              paint();
+            });
+            row.querySelector('.clip-del').addEventListener('click', function (e) {
+              e.stopPropagation();
+              ITEMS.splice(i, 1);
+              paint();
+            });
+            list.appendChild(row);
+          });
+        }
+        paint();
+      })();
+
+      /* ---------- 海床：只读预览 ----------
+         点左侧配置树 → 右侧标题/提示/代码跟着换。
+         代码用 <pre> 展示、不可编辑；工具按钮只保留外观（不写盘、不编译）。 */
+      (function () {
+        var root = document.querySelector('.sb');
+        if (!root) return;
+        var list = root.querySelector('[data-sb-list]');
+        var titleEl = root.querySelector('[data-sb-title]');
+        var hintEl = root.querySelector('[data-sb-hint]');
+        var codeEl = root.querySelector('[data-sb-code]');
+        var statusEl = root.querySelector('[data-sb-status]');
+
+        var HINT = '配置目录：点开 config.json 编辑，或用「应用」写回设置';
+        // config.json = 该功能的配置项；manifest.json = 元数据
+        // （manifest 的字段照 market/packages/timer/manifest.json 的真实结构）
+        function manifest(id, name, category, desc) {
+          return '{\n' +
+            '  "id": "' + id + '",\n' +
+            '  "name": "' + name + '",\n' +
+            '  "kind": "Animation",\n' +
+            '  "category": "' + category + '",\n' +
+            '  "version": "1.0.0",\n' +
+            '  "author": "timecolors",\n' +
+            '  "publisherId": 176211220,\n' +
+            '  "description": "' + desc + '",\n' +
+            '  "baseType": "Animation",\n' +
+            '  "parentKey": "panel-animations",\n' +
+            '  "sourceKey": "anim-' + id + '",\n' +
+            '  "permissions": [],\n' +
+            '  "files": [\n' +
+            '    "main.cs",\n' +
+            '    "manifest.json",\n' +
+            '    "config.json"\n' +
+            '  ],\n' +
+            '  "apiVersion": 1\n' +
+            '}';
+        }
+        var NODES = {
+          '2': { title: '尺寸形变',
+            config: '{\n' +
+              '  "EnableSizeTransform": true,\n' +
+              '  "ScaleX": 1.0,\n' +
+              '  "ScaleY": 1.0,\n' +
+              '  "TransformDurationMs": 250,\n' +
+              '  "EasingType": "CubicEase"\n' +
+              '}',
+            manifest: manifest('size-transform', '尺寸形变', '动画', '面板展开/收起时的整体缩放。') },
+          '3': { title: '触发动画',
+            config: '{\n' +
+              '  "EnableTriggerAnimation": true,\n' +
+              '  "TriggerEasingType": "CubicEase",\n' +
+              '  "TriggerDurationMs": 180,\n' +
+              '  "TriggerScale": 0.96,\n' +
+              '  "TriggerOpacity": 0.0\n' +
+              '}',
+            manifest: manifest('trigger-animation', '触发动画', '动画', '鼠标触边时的轻微反馈动画。') },
+          '4': { title: '跟随飞行',
+            config: '{\n' +
+              '  "TransformEasingType": "CubicEase",\n' +
+              '  "TransformDurationMs": 250\n' +
+              '}',
+            manifest: manifest('fly-along', '跟随飞行', '动画', '面板跟随鼠标沿屏幕边缘滑动。') },
+          '5': { title: '延迟隐藏',
+            config: '{\n' +
+              '  "HideDelayMs": 400,\n' +
+              '  "CancelOnReenter": true,\n' +
+              '  "FadeOutMs": 160\n' +
+              '}',
+            manifest: manifest('hide-delay', '延迟隐藏', '动画', '鼠标移开后延迟收起面板。') },
+          '6': { title: '任务栏',
+            config: '{\n' +
+              '  "IconSize": 28,\n' +
+              '  "ShowRunningWindows": true,\n' +
+              '  "GroupSameApp": true,\n' +
+              '  "MaxWindowTitleWidth": 120,\n' +
+              '  "ShowCloseButton": true\n' +
+              '}',
+            manifest: manifest('taskbar', '任务栏', '面板', '屏幕边缘的快捷方式与窗口列表。') }
+        };
+
+        function show(node, file) {
+          var n = NODES[node];
+          if (!n) return;
+          titleEl.textContent = n.title + (file ? ' / ' + (file === 'manifest' ? 'manifest.json' : 'config.json') : '');
+          hintEl.textContent = HINT;
+          codeEl.textContent = file === 'manifest' ? n.manifest : n.config;
+          if (statusEl) statusEl.textContent = '只读预览：这里不写盘，也不执行编译';
+          /* 高亮互斥：选中的是"功能"就只亮功能行，选中的是"文件"就只亮文件行 */
+          var selFile = node + ':' + file;
+          Array.prototype.forEach.call(list.querySelectorAll('li'), function (li) {
+            if (li.hasAttribute('data-file')) {
+              li.classList.toggle('cur', !!file && li.getAttribute('data-file') === selFile);
+            } else if (li.hasAttribute('data-node')) {
+              li.classList.toggle('cur', !file && li.getAttribute('data-node') === node);
+            }
+          });
+        }
+
+        list.addEventListener('click', function (e) {
+          var li = e.target.closest('li');
+          if (!li) return;
+          if (li.hasAttribute('data-file')) {
+            var parts = li.getAttribute('data-file').split(':');
+            show(parts[0], parts[1]);
+          } else if (li.hasAttribute('data-node')) {
+            show(li.getAttribute('data-node'), null);   // 点功能本身 → 高亮功能行
+          }
+        });
+        show('4', null);   // 默认停在「跟随飞行」，与真实截图一致
+
+        /* GridSplitter：拖动调整左树宽度（真实 MinWidth 140 / MaxWidth 420） */
+        var splitter = root.querySelector('[data-sb-splitter]');
+        var tree = root.querySelector('[data-sb-tree]');
+        if (splitter && tree) {
+          splitter.addEventListener('mousedown', function (e) {
+            e.preventDefault();
+            var startX = e.clientX;
+            var startW = tree.getBoundingClientRect().width;
+            function move(ev) {
+              var w = Math.max(140, Math.min(420, startW + (ev.clientX - startX)));
+              tree.style.flex = '0 0 ' + w + 'px';
+              tree.style.minWidth = w + 'px';
+            }
+            function up() {
+              document.removeEventListener('mousemove', move);
+              document.removeEventListener('mouseup', up);
+              document.body.style.cursor = '';
+            }
+            document.body.style.cursor = 'col-resize';
+            document.addEventListener('mousemove', move);
+            document.addEventListener('mouseup', up);
+          });
+        }
+
+        /* ---------- 完全编程模式（xamlEditorPanel）----------
+           选「完全编程」→ 换成 Tab 编辑器（.xaml / .xaml.cs）+ 底部实时预览。
+           同样只读：内容用 <pre> 展示，预览是按示例 XAML 画出来的静态渲染。 */
+        var modeSel = root.querySelector('[data-sb-mode]');
+        var simpleCode = root.querySelector('[data-sb-code]');
+        var xamlPanel = root.querySelector('[data-sb-xaml]');
+        var xcode = root.querySelector('[data-xcode]');
+        var preview = root.querySelector('[data-preview]');
+
+        // .xaml：逐字取自 seabed/小组件/timer/TimerWidget.xaml（节选开头部分）
+        var XAML_SRC =
+'<UserControl x:Class="ShoreHue.UI.Widgets.Timer.TimerWidget"\n' +
+'             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"\n' +
+'             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:loc="clr-namespace:ShoreHue.UI.Localization">\n' +
+'    <Grid Margin="2">\n' +
+'        <Grid.RowDefinitions>\n' +
+'            <RowDefinition Height="Auto"/>\n' +
+'            <RowDefinition Height="Auto"/>\n' +
+'            <RowDefinition Height="Auto"/>\n' +
+'            <RowDefinition Height="*"/>\n' +
+'            <RowDefinition Height="Auto"/>\n' +
+'        </Grid.RowDefinitions>\n' +
+'\n' +
+'        <!-- 模式切换：正计时 / 倒计时 / 闹钟 -->\n' +
+'        <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,6">\n' +
+'            <Button x:Name="BtnModeUp" Content="{Binding Item[UI_TimerWidget_413], Source={x:Static loc:LocalizationManager.Instance}}" Style="{StaticResource AccentButton}" Height="26" Padding="10,0" Click="ModeUp_Click"/>\n' +
+'            <Button x:Name="BtnModeDown" Content="{Binding Item[UI_TimerWidget_414], Source={x:Static loc:LocalizationManager.Instance}}" Style="{StaticResource FlatButton}" Height="26" Padding="10,0" Margin="6,0,0,0" Click="ModeDown_Click"/>\n' +
+'            <Button x:Name="BtnModeAlarm" Content="{Binding Item[UI_TimerWidget_415], Source={x:Static loc:LocalizationManager.Instance}}" Style="{StaticResource FlatButton}" Height="26" Padding="10,0" Margin="6,0,0,0" Click="ModeAlarm_Click"/>\n' +
+'        </StackPanel>\n' +
+'\n' +
+'        <!-- 时间显示 -->\n' +
+'        <StackPanel Grid.Row="1" Margin="0,6,0,4">\n' +
+'            <TextBlock x:Name="TimeText"\n' +
+'                       Text="25:00"\n' +
+'                       FontSize="32"\n' +
+'                       FontWeight="Light"\n' +
+'                       Foreground="#EEEEEE"\n' +
+'                       HorizontalAlignment="Center"/>\n' +
+'            <TextBlock x:Name="StateText"\n' +
+'                       Text="{Binding Item[UI_TimerWidget_416], Source={x:Static loc:LocalizationManager.Instance}}"\n' +
+'                       FontSize="10"\n' +
+'                       Foreground="#8A8A8A"\n' +
+'                       HorizontalAlignment="Center"\n' +
+'                       Margin="0,2,0,0"/>\n' +
+'        </StackPanel>\n' +
+'\n' +
+'        <!-- ……（其余：输入行 / 进度条 / 预设 / 开始重置按钮） -->\n' +
+'    </Grid>\n' +
+'</UserControl>';
+
+        // .xaml.cs：逐字取自 seabed/小组件/timer/TimerWidget.xaml.cs（节选开头部分）
+        var CS_SRC =
+'using System;\n' +
+'using System.Globalization;\n' +
+'using System.Windows;\n' +
+'using System.Windows.Controls;\n' +
+'using System.Windows.Media;\n' +
+'using System.Windows.Threading;\n' +
+'using ShoreHue.Infrastructure.WinApi;\n' +
+'using ShoreHue.UI.Localization;\n' +
+'using ShoreHue.UI.Widgets;\n' +
+'\n' +
+'namespace ShoreHue.UI.Widgets.Timer\n' +
+'{\n' +
+'    public partial class TimerWidget : UserControl, IWidget, IWidgetFooter\n' +
+'    {\n' +
+'        private enum TimerMode { CountUp, CountDown, Alarm }\n' +
+'\n' +
+'        /// <summary>\n' +
+'        /// 每个模式的独立计时状态：切换面板不重置、后台继续走。\n' +
+'        /// 计时一律基于绝对时间点计算，避免 tick 累积误差。\n' +
+'        /// </summary>\n' +
+'        private sealed class TimerState\n' +
+'        {\n' +
+'            // 正计时\n' +
+'            public DateTime? StartUtc;\n' +
+'            public double ElapsedSeconds;\n' +
+'\n' +
+'            // 倒计时（总时长 + 结束时刻）\n' +
+'            public double TotalSeconds;\n' +
+'            public DateTime? EndUtc;\n' +
+'            public double PausedRemaining;\n' +
+'\n' +
+'            // 闹钟（目标时刻，本地时间）\n' +
+'            public DateTime? TargetTime;\n' +
+'            public bool AlarmTriggered;\n' +
+'\n' +
+'            public bool Running;\n' +
+'            public int InputHour = 8;\n' +
+'            public int InputMin = 0;\n' +
+'        }\n' +
+'\n' +
+'        private readonly DispatcherTimer _timer;\n' +
+'        private TimerMode _mode = TimerMode.CountDown;\n' +
+'        private readonly TimerState _countUp = new();\n' +
+'        private readonly TimerState _countDown = new() { TotalSeconds = 1500, PausedRemaining = 1500, InputHour = 0, InputMin = 25 };\n' +
+'        private readonly TimerState _alarm = new() { InputHour = 8, InputMin = 0 };\n' +
+'\n' +
+'        public TimerWidget()\n' +
+'        {\n' +
+'            InitializeComponent();\n' +
+'            _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };\n' +
+'            _timer.Tick += OnTick;\n' +
+'            // ★ 不在构造里启动：小组件实例会被缓存（面板切走后仍存活），\n' +
+'            //   常驻 Start 就是每秒醒 4 次、永不停止。改由 OnActivated/OnDeactivated 管生命周期。\n' +
+'            ApplyMode();\n' +
+'            UpdateDisplay();\n' +
+'        }\n' +
+'\n' +
+'        public new string Name => LocalizationManager.Instance["WidgetTabs_Timer"];\n' +
+'\n' +
+'        public UserControl CreateView() => this;\n' +
+'\n' +
+'        public void OnActivated() { StartTicking(); }\n' +
+'\n' +
+'        /// <summary>★ 面板切走就停表：实例仍在缓存里，但不再空转。\n' +
+'        /// 计时靠 EndUtc/StartUtc 绝对时刻，重挂载后 OnActivated 续上即可，进度不会丢。</summary>\n' +
+'        public void OnDeactivated() { _timer.Stop(); }\n' +
+'\n' +
+'        /// <summary>有正在跑的计时/闹钟才需要 tick；否则停掉（空闲零唤醒）。</summary>\n' +
+'        private void StartTicking()\n' +
+'        {\n' +
+'            bool anyRunning = _countUp.Running || _countDown.Running || _alarm.Running;\n' +
+'            if (anyRunning) { if (!_timer.IsEnabled) _timer.Start(); }\n' +
+'            else _timer.Stop();\n' +
+'        }\n' +
+'\n' +
+'        public FrameworkElement GetFooterControl()\n' +
+'        {\n' +
+'            // ★ 用户要求：去掉底部提示行（"正计时/倒计时/闹钟：各模式独立计时…"），保持面板简洁。\n' +
+'            return new StackPanel();\n' +
+'        }\n' +
+'\n' +
+'        private TimerState Current => _mode switch\n' +
+'        {\n' +
+'            TimerMode.CountUp => _countUp,\n' +
+'            TimerMode.CountDown => _countDown,\n' +
+'            _ => _alarm\n' +
+'        };\n' +
+'\n' +
+'        // ================= 模式切换（不重置状态） =================\n' +
+'\n' +
+'        private void ModeUp_Click(object sender, RoutedEventArgs e) => SetMode(TimerMode.CountUp);\n' +
+'        private void ModeDown_Click(object sender, RoutedEventArgs e) => SetMode(TimerMode.CountDown);\n' +
+'\n' +
+'        // ……（其余方法：SetMode / StartPause_Click / OnTick / UpdateDisplay …）\n' +
+'}';
+
+        // 预览的是"渲染出来的小组件面板" —— widget 自带 #2D2D2D 底色，
+        // 所以这里套一层深色容器，而不是把白字直接放在白色 previewFrame 上
+        var PREVIEW_HTML =
+          '<div class="pv-widget">' +
+            '<div class="pv-tabs"><span class="on">正计时</span><span>倒计时</span><span>闹钟</span></div>' +
+            '<div class="pv-time">25:00</div>' +
+            '<div class="pv-state">就绪</div>' +
+          '</div>';
+
+        function setXtab(which) {
+          Array.prototype.forEach.call(xamlPanel.querySelectorAll('[data-xtab]'), function (b) {
+            b.classList.toggle('on', b.getAttribute('data-xtab') === which);
+          });
+          xcode.textContent = which === 'cs' ? CS_SRC : XAML_SRC;
+        }
+        if (xamlPanel) {
+          Array.prototype.forEach.call(xamlPanel.querySelectorAll('[data-xtab]'), function (b) {
+            b.addEventListener('click', function () { setXtab(b.getAttribute('data-xtab')); });
+          });
+          preview.innerHTML = PREVIEW_HTML;
+          setXtab('xaml');
+        }
+        if (modeSel) {
+          modeSel.addEventListener('change', function () {
+            var isXaml = modeSel.value === 'xaml';
+            simpleCode.hidden = isXaml;
+            xamlPanel.hidden = !isXaml;
+          });
+        }
+
+        /* ---------- 编辑器 ↔ 预览 的分隔条（GridSplitter Height 5 / SizeNS） ---------- */
+        var hsplit = root.querySelector('[data-sb-hsplit]');
+        if (hsplit) {
+          hsplit.addEventListener('mousedown', function (e) {
+            e.preventDefault();
+            var startY = e.clientY;
+            var startH = xcode.getBoundingClientRect().height;
+            function move(ev) {
+              var h = Math.max(40, Math.min(400, startH + (ev.clientY - startY)));
+              xcode.style.flex = '0 0 ' + h + 'px';
+            }
+            function up() {
+              document.removeEventListener('mousemove', move);
+              document.removeEventListener('mouseup', up);
+              document.body.style.cursor = '';
+            }
+            document.body.style.cursor = 'row-resize';
+            document.addEventListener('mousemove', move);
+            document.addEventListener('mouseup', up);
+          });
+        }
+
+        /* ---------- 配置树右键菜单（照 SeabedPage 的 ContextMenu） ----------
+           只读：菜单能弹出、能点，但不执行任何文件操作 */
+        var menu = root.querySelector('[data-sb-menu]');
+        if (menu && list) {
+          list.addEventListener('contextmenu', function (e) {
+            var li = e.target.closest('li');
+            if (!li) return;
+            e.preventDefault();
+            var box = root.getBoundingClientRect();
+            menu.hidden = false;
+            menu.style.left = (e.clientX - box.left) + 'px';
+            menu.style.top = (e.clientY - box.top) + 'px';
+          });
+          document.addEventListener('click', function () { menu.hidden = true; });
+          menu.addEventListener('click', function (e) { e.stopPropagation(); menu.hidden = true; });
+        }
+        /* ⊕ 占位行：只给视觉反馈（真实行为是创建同级新功能，这里不写盘） */
+        Array.prototype.forEach.call(list.querySelectorAll('li.add'), function (li) {
+          li.addEventListener('click', function (e) {
+            e.stopPropagation();
+            li.classList.add('hit');
+            setTimeout(function () { li.classList.remove('hit'); }, 200);
+          });
+        });
+      })();
+
+      /* ---------- 剪贴板 / 便签：点击高亮 ---------- */
+      Array.prototype.forEach.call(wsw.querySelectorAll('.clip-filters button'), function (b) {
+        b.addEventListener('click', function () {
+          Array.prototype.forEach.call(b.parentNode.children, function (x) { x.classList.remove('cur'); });
+          b.classList.add('cur');
+        });
+      });
+      Array.prototype.forEach.call(wsw.querySelectorAll('.note-chip'), function (c) {
+        c.addEventListener('click', function () {
+          Array.prototype.forEach.call(wsw.querySelectorAll('.note-chip'), function (x) { x.classList.remove('cur'); });
+          c.classList.add('cur');
+        });
+      });
+    })();
+
+    /* ---------- 界面预览：首尾相接的轮播 ----------
+       做法同 Swiper 的 loop：克隆首尾两张垫在两端，
+       滚到克隆位时用"无动画"瞬移回真实的对应位置，
+       于是永远滚不到头。 */
+    (function () {
+      var track = document.getElementById('carTrack');
+      var dotsBox = document.getElementById('carDots');
+      if (!track || !dotsBox) return;
+
+      var real = Array.prototype.slice.call(track.children);
+      var N = real.length;
+      if (N < 2) return;
+
+      // 垫首尾
+      var firstClone = real[0].cloneNode(true);
+      var lastClone = real[N - 1].cloneNode(true);
+      firstClone.setAttribute('aria-hidden', 'true');
+      lastClone.setAttribute('aria-hidden', 'true');
+      track.insertBefore(lastClone, real[0]);
+      track.appendChild(firstClone);
+
+      var all = Array.prototype.slice.call(track.children);   // N + 2 张
+      var jumping = false;
+      var settleTimer = null;
+
+      function gapPx() { return parseFloat(getComputedStyle(track).columnGap) || 32; }
+      function stepPx() { return real[0].getBoundingClientRect().width + gapPx(); }
+      function realIndex() {
+        return Math.min(N - 1, Math.max(0, Math.round(track.scrollLeft / stepPx()) - 1));
+      }
+
+      // 指示点（只按真实数量）
+      var dotEls = [];
+      (function buildDots() {
+        dotsBox.innerHTML = '';
+        dotEls = [];
+        for (var i = 0; i < N; i++) {
+          (function (idx) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'car-dot' + (idx === 0 ? ' active' : '');
+            b.setAttribute('aria-label', '第 ' + (idx + 1) + ' 张');
+            b.addEventListener('click', function () { goTo(idx + 1); });
+            dotsBox.appendChild(b);
+            dotEls.push(b);
+          })(i);
+        }
+      })();
+
+      function sync() {
+        var i = realIndex();
+        for (var k = 0; k < dotEls.length; k++) {
+          dotEls[k].classList.toggle('active', k === i);
+        }
+      }
+
+      // 瞬移（用于跨过克隆位，必须无动画否则会看到倒带）
+      function jumpTo(scrollLeft) {
+        jumping = true;
+        var prev = track.style.scrollBehavior;
+        track.style.scrollBehavior = 'auto';
+        track.scrollLeft = scrollLeft;
+        /* 强制同步布局，让这次赋值立刻落地。
+           之前放在 requestAnimationFrame 里会多等一帧 ——
+           加上兜底 debounce，累积成肉眼可见的停顿，
+           表现就是"最后一项跳回第一项不顺畅"。 */
+        void track.offsetWidth;
+        track.style.scrollBehavior = prev || '';
+        jumping = false;
+      }
+
+      function goTo(slideIdx) {   // slideIdx 是"含克隆"的下标，1 起
+        track.scrollTo({ left: slideIdx * stepPx(), behavior: 'smooth' });
+      }
+
+      track.addEventListener('scroll', function () {
+        if (jumping) return;
+        sync();
+        /* 关键：不能在滚动过程中瞬移。
+           平滑滚动期间 scroll 事件会连续触发，Math.round(scrollLeft/step)
+           在"滚到一半"时就已经等于克隆位下标，于是动画没走完就跳走 ——
+           表现出来就是「最后一项跳回第一项不顺畅」。
+           所以这里等滚动真正停下（scrollend，或 debounce 兜底）再瞬移。 */
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(settle, 40);
+      }, { passive: true });
+
+      function settle() {
+        if (jumping) return;
+        var st = stepPx();
+        var idx = Math.round(track.scrollLeft / st);
+        if (idx <= 0) { jumpTo(N * st); sync(); return; }        // 撞到头部克隆
+        if (idx >= N + 1) { jumpTo(1 * st); sync(); return; }    // 撞到尾部克隆
+      }
+
+      // 支持 scrollend 的浏览器用原生事件，更精确
+      if ('onscrollend' in window) {
+        track.addEventListener('scrollend', function () {
+          clearTimeout(settleTimer);
+          settle();
+        }, { passive: true });
+      }
+
+      var prev = document.querySelector('.car-prev');
+      var next = document.querySelector('.car-next');
+      if (prev) prev.addEventListener('click', function () { goTo(realIndex() + 1 - 1); });
+      if (next) next.addEventListener('click', function () { goTo(realIndex() + 1 + 1); });
+
+      // 定位到第一张真图（下标 1）
+      track.scrollLeft = stepPx();
+      sync();
+
+      // 尺寸变化后重新对齐，否则 step 变了会错位
+      window.addEventListener('resize', function () {
+        jumpTo((realIndex() + 1) * stepPx());
+        sync();
+      });
+    })();
+  })();
+</script>
+</body>
+</html>

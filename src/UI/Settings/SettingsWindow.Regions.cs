@@ -38,14 +38,9 @@ namespace ShoreHue.UI.Settings
             ("WindowControl", "Panel_WindowControl"),
         };
 
-        private static readonly string[] RegionPanelKeys =
-        {
-            "Top_Left", "Top_Center", "Top_Right",
-            "Bottom_Left", "Bottom_Center", "Bottom_Right",
-            "Left_Top", "Left_Center", "Left_Bottom",
-            "Right_Top", "Right_Center", "Right_Bottom",
-            "TopLeft", "TopRight", "BottomLeft", "BottomRight"
-        };
+        // ★ 16 个区域键只有一处定义：RegionTable.Keys（顺序 = 设置页区域列表顺序）。
+        //   这里别再抄一份——抄了就会漂移（原来就是三份：这里、RegionPanel_ 字段、RegionDelayConfig）。
+        private static readonly string[] RegionPanelKeys = RegionTable.Keys.ToArray();
 
         // 逐区域触发/隐藏延时：区域键 + 显示名（复用区域面板标签的本地化键）
         private static readonly (string Key, string LocKey)[] RegionDelayConfig =

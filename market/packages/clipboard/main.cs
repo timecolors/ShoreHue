@@ -27,7 +27,8 @@ namespace ShoreHue.Builtin
 
         public ClipboardPanel()
         {
-            _clipboard = ServiceManager.Instance.GetService<ClipboardManager>() as IClipboardService;
+            // ★ 安全 v2：外来来源只能用窄接口（宿主内部服务容器已被沙箱拦截）
+            _clipboard = ShoreHue.UI.Widgets.HostCapabilities.ClipboardHistory;
             BuildUi();
             if (_clipboard != null) _clipboard.HistoryChanged += (_, _) => RefreshList();
             RefreshList();

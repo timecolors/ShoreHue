@@ -20,6 +20,7 @@ public class BuiltinFeatureSourcesTests
     [InlineData("panel-quicksettings")]
     [InlineData("panel-taskbar-feature")]
     [InlineData("panel-ai")]
+    [InlineData("panel-apphelper")]
     [InlineData("panel-windowcontrol")]
     public void Template_Compiles(string key)
     {
@@ -70,6 +71,7 @@ public class BuiltinFeatureSourcesTests
         Assert.Contains("panel-quicksettings", BuiltinFeatureSources.PanelKeys);
         Assert.Contains("panel-taskbar-feature", BuiltinFeatureSources.PanelKeys);
         Assert.Contains("panel-ai", BuiltinFeatureSources.PanelKeys);
+        Assert.Contains("panel-apphelper", BuiltinFeatureSources.PanelKeys);
         Assert.Contains("panel-windowcontrol", BuiltinFeatureSources.PanelKeys);
     }
 }

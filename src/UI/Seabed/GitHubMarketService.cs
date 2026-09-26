@@ -9,6 +9,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using ShoreHue.Core.Infrastructure.Logging;
 
 namespace ShoreHue.UI.Seabed
 {
@@ -41,7 +42,11 @@ namespace ShoreHue.UI.Seabed
                 Directory.CreateDirectory(Path.GetDirectoryName(LogFile)!);
                 File.AppendAllText(LogFile, DateTime.Now.ToString("HH:mm:ss.fff") + " " + msg + Environment.NewLine);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：调试日志本身写不进去就算了（这里若再抛会打断登录流程）
+                LogManager.Debug($"[市场] 写登录调试日志失败（无害）：{ex.Message}");
+            }
         }
 
         private static HttpClient CreateClient()
@@ -57,7 +62,10 @@ namespace ShoreHue.UI.Seabed
                     _activeProxy = proxy;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[市场] 读取 git 代理配置失败（按直连/系统代理处理）：{ex.Message}");
+            }
             Log("HttpClient 初始化，代理=" + (_activeProxy ?? "（无，直连/系统代理）"));
             return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
         }
@@ -75,11 +83,15 @@ namespace ShoreHue.UI.Seabed
                 };
                 using var p = System.Diagnostics.Process.Start(psi);
                 if (p == null) return null;
-                if (!p.WaitForExit(3000)) { try { p.Kill(); } catch { } return null; }
+                if (!p.WaitForExit(3000)) { try { p.Kill(); } catch (Exception ex) { LogManager.Debug($"[市场] 结束超时的 git 进程失败（无害）：{ex.Message}"); } return null; }
                 string? url = p.StandardOutput.ReadToEnd()?.Trim();
                 return string.IsNullOrEmpty(url) ? null : url;
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[市场] 查询 git 全局代理失败（按无代理解析）：{ex.Message}");
+                return null;
+            }
         }
 
         public static bool IsLoggedIn => !string.IsNullOrEmpty(_token);
@@ -102,7 +114,11 @@ namespace ShoreHue.UI.Seabed
                 string? user = await GetUserAsync(token);
                 if (user != null) { _token = token; CurrentUser = user; CurrentUserId = _userId; }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 读不出凭据 = 变成未登录（用户会看到"未登录"，但原因只在日志里）
+                LogManager.Warning($"[市场] 读取本地 GitHub 凭据失败（按未登录处理）：{ex.Message}");
+            }
         }
 
         /// <summary>开始设备流：返回 (验证码, 授权网址, device_code)。</summary>
@@ -195,7 +211,7 @@ namespace ShoreHue.UI.Seabed
                 {
                     _token = t.GetString();
                     Log("获取到 token，查询用户信息…");
-                    CurrentUser = await GetUserAsync(_token);
+                    CurrentUser = await GetUserAsync(_token ?? "");
                     CurrentUserId = _userId;
                     Log("登录用户: " + (CurrentUser ?? "（未知）") + " (id=" + (CurrentUserId?.ToString() ?? "?") + ")");
                     SaveToken();
@@ -213,7 +229,12 @@ namespace ShoreHue.UI.Seabed
         public static void Logout()
         {
             _token = null; CurrentUser = null; CurrentUserId = null; _userId = null;
-            try { if (File.Exists(TokenFile)) File.Delete(TokenFile); } catch { }
+            try { if (File.Exists(TokenFile)) File.Delete(TokenFile); }
+            catch (Exception ex)
+            {
+                // ★ 登出却删不掉凭据 = 令牌仍留在本机（用户以为自己已登出），必须留痕
+                LogManager.Warning($"[市场] 删除本地登录凭据失败（凭据仍留在本机）：{ex.Message}");
+            }
         }
 
         private static void SaveToken()
@@ -225,7 +246,10 @@ namespace ShoreHue.UI.Seabed
                 byte[] enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(_token), null, DataProtectionScope.CurrentUser);
                 File.WriteAllBytes(TokenFile, enc);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[市场] 保存登录凭据失败（下次启动需重新登录）：{ex.Message}");
+            }
         }
 
         private static async Task<string?> GetUserAsync(string token)
@@ -282,7 +306,11 @@ namespace ShoreHue.UI.Seabed
                         if (doc.RootElement.TryGetProperty("files", out var files) && files.ValueKind == System.Text.Json.JsonValueKind.Array)
                             foreach (var f in files.EnumerateArray()) { var s = f.GetString(); if (!string.IsNullOrWhiteSpace(s)) toDelete.Add(s); }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        // 解析不出文件清单 → 删包时会漏删文件（远端残留），必须留痕
+                        LogManager.Warning($"[市场] 解析包内文件清单失败（删包会残留文件）{id}：{ex.Message}");
+                    }
                 }
                 foreach (var file in toDelete.Distinct())
                 {
@@ -298,7 +326,11 @@ namespace ShoreHue.UI.Seabed
                 }
                 return null;
             }
-            catch (Exception ex) { return "删除失败：" + ex.Message; }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[市场] 删除市场包失败 {id}：{ex.Message}", ex);
+                return "删除失败：" + ex.Message;
+            }
         }
 
         private static string RemovePackageFromIndex(string indexJson, string id)
@@ -405,12 +437,37 @@ namespace ShoreHue.UI.Seabed
             System.Collections.Generic.List<PackageFile>? extraFiles = null)
         {
             if (string.IsNullOrEmpty(_token)) return "未登录 GitHub";
-            // ★ 安全：包 id 仅允许 英文/数字/下划线/连字符（防路径穿越）
-            if (string.IsNullOrEmpty(id) || !System.Text.RegularExpressions.Regex.IsMatch(id, "^[A-Za-z0-9_-]{2,64}$"))
-                return "非法包 id（仅英文/数字/下划线/连字符）";
+            // ★ 身份必须完整：只有 token 而拿不到账号数字 ID 时做不了归属校验 → 宁可不让发布
+            if (CurrentUserId is null || string.IsNullOrEmpty(CurrentUser))
+                return "未获取到 GitHub 账号信息，请退出后重新登录再发布";
+            // ★ 形态校验：最多一个斜杠、两段各自合法（顺带防路径穿越）
+            if (MarketPackageRules.ValidateIdFormat(id) is string idFormatErr) return idFormatErr;
             if (string.IsNullOrEmpty(source)) return "源码为空";
             try
             {
+                // ★★ 修「任何人都能覆盖他人包」的漏洞：**写任何东西之前**先读目标 manifest 判归属。
+                //    规则见 MarketPackageRules.CheckCanPublish —— 新包必须占自己的命名空间；
+                //    已有包 publisherId 必须是自己；缺归属信息一律拒绝（不拿可伪造的 author 字符串去猜）。
+                string dir = $"market/packages/{id}";
+                string mfSha = "";
+                string? existingManifestJson = null;
+                var existingManifest = await GetContentAsync(dir + "/manifest.json");
+                if (existingManifest != null)
+                {
+                    mfSha = existingManifest.Value.Sha;
+                    try
+                    {
+                        existingManifestJson = Encoding.UTF8.GetString(Convert.FromBase64String(existingManifest.Value.Content));
+                    }
+                    catch (Exception ex)
+                    {
+                        // 读不出既有 manifest → 归属未知 → CheckCanPublish 会拒绝覆盖（fail-closed）
+                        LogManager.Warning($"[市场] 读取既有 manifest 失败（按「归属未知」处理，将拒绝覆盖）：{ex.Message}");
+                    }
+                }
+                if (MarketPackageRules.CheckCanPublish(id, existingManifestJson, CurrentUserId.Value, CurrentUser) is string publishErr)
+                    return publishErr;
+
                 // 1) manifest.json（含权限检测）
                 var allFiles = new System.Collections.Generic.List<PackageFile>
                 {
@@ -444,11 +501,7 @@ namespace ShoreHue.UI.Seabed
                 };
                 string manifestJson = JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true });
 
-                // 2) 已存在则取 sha（覆盖更新），否则创建
-                string dir = $"market/packages/{id}";
-                string mfSha = "";
-                var mf = await GetContentAsync(dir + "/manifest.json");
-                if (mf != null) mfSha = mf.Value.Sha;
+                // 2) 写 manifest（sha 与归属已在上面一次读取里校验完）
                 await PutFileAsync(dir + "/manifest.json", manifestJson, mfSha, $"发布市场包 {id}（manifest）");
 
                 foreach (var f in allFiles)
@@ -469,11 +522,15 @@ namespace ShoreHue.UI.Seabed
                     idxSha = idx.Value.Sha;
                 }
                 string updated = UpsertPackageInIndex(indexJson, id, name, kind, category, version,
-                    CurrentUser ?? "", description ?? "", baseType, parentKey, sourceKey, permissions);
+                    CurrentUser ?? "", description ?? "", baseType, parentKey, sourceKey, permissions ?? new List<string>());
                 await PutFileAsync("market/index.json", updated, idxSha, $"发布市场包 {id}（索引）");
                 return null;
             }
-            catch (Exception ex) { return "放流失败：" + ex.Message; }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[市场] 放流（发布）失败 {id}：{ex.Message}", ex);
+                return "放流失败：" + ex.Message;
+            }
         }
 
         /// <summary>在 index.json 中新增或覆盖一个包条目（保留其他字段完整，用 JsonNode 深拷贝）。</summary>
@@ -587,7 +644,11 @@ namespace ShoreHue.UI.Seabed
                 await PutFileAsync(path, json, sha, "ShoreHue 设置云同步（上传）");
                 return null;
             }
-            catch (Exception ex) { return "上传失败：" + ex.Message; }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[市场] 云同步上传失败（{user}）：{ex.Message}", ex);
+                return "上传失败：" + ex.Message;
+            }
         }
 
         /// <summary>从云端下载个人设置。返回 (json, null)=成功；(null, 错误)=失败或云端无备份。</summary>
@@ -602,7 +663,11 @@ namespace ShoreHue.UI.Seabed
                 string json = Encoding.UTF8.GetString(Convert.FromBase64String(info.Value.Content));
                 return (json, null);
             }
-            catch (Exception ex) { return (null, "下载失败：" + ex.Message); }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[市场] 云同步下载失败（{user}）：{ex.Message}", ex);
+                return (null, "下载失败：" + ex.Message);
+            }
         }
 
         /// <summary>云端是否有该用户的设置备份。null=无/失败。</summary>
@@ -610,7 +675,12 @@ namespace ShoreHue.UI.Seabed
         {
             if (string.IsNullOrEmpty(user)) return null;
             try { return (await GetContentAsync(CloudConfigPath(user))) != null; }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                // 返回 null = "未知/失败"（调用方据此不提示恢复），失败原因必须留痕
+                LogManager.Warning($"[市场] 查询云端设置备份失败（{user}）：{ex.Message}");
+                return null;
+            }
         }
     }
 }

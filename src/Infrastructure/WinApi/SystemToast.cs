@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.Infrastructure.Utils;
 using Windows.Data.Xml.Dom;
 using Windows.UI.Notifications;
@@ -29,7 +30,11 @@ namespace ShoreHue.Infrastructure.WinApi
                     {
                         return Windows.ApplicationModel.Package.Current.Id.FamilyName + "!App";
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        // 正常情况：非打包运行（绿色版）取不到包标识 → 用 "ShoreHue" 兜底
+                        LogManager.Debug($"[通知] 读取包标识失败（按非打包运行处理）：{ex.Message}");
+                    }
                 }
                 return "ShoreHue";
             }
@@ -64,7 +69,7 @@ namespace ShoreHue.Infrastructure.WinApi
                         $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}");
                 }
             }
-            catch { }
+            catch { /* 通知自己的调试日志写不进去就不再记（避免自我递归） */ }
         }
 
         /// <summary>
@@ -86,12 +91,22 @@ namespace ShoreHue.Infrastructure.WinApi
                     Environment.GetFolderPath(Environment.SpecialFolder.Programs),
                     "ShoreHue.lnk");
 
-                if (File.Exists(lnk) && string.Equals(ReadAumid(lnk), Aumid, StringComparison.Ordinal))
+                // ★ 判据必须包含「目标还有效」：只查「快捷方式文件在不在 + AUMID 对不对」的话，
+                //   用户移动或删除安装目录（**卸载就是删安装目录**）之后快捷方式会变成死链 ——
+                //   点它没反应，而且应用每次启动都在这里 return、**永远不自愈**。
+                //   （2026-09 实测：目标被删后连启动两次都没修复。）
+                bool lnkExists = File.Exists(lnk);
+                string? lnkAumid = lnkExists ? ReadAumid(lnk) : null;
+                string resolved = lnkExists ? ShortcutLinkResolver.Resolve(lnk) : "";
+                bool targetExists = lnkExists && File.Exists(resolved);
+
+                if (ShortcutUsable(lnkExists, lnkAumid, resolved, exe, targetExists))
                 {
-                    Log("EnsureRegistered: 快捷方式已存在且 AUMID 正确");
+                    Log("EnsureRegistered: 快捷方式已存在、AUMID 正确、目标有效");
                     return;
                 }
 
+                if (lnkExists) Log($"EnsureRegistered: 快捷方式需重建（当前目标={resolved}，应为={exe}）");
                 CreateShortcut(lnk, exe);
                 string? written = ReadAumid(lnk);
                 Log($"EnsureRegistered: 已创建/修复快捷方式，AUMID={(written ?? "<null>")}");
@@ -101,6 +116,23 @@ namespace ShoreHue.Infrastructure.WinApi
                 Log($"EnsureRegistered 异常: {ex}");
             }
         }
+
+        /// <summary>
+        /// 「现有快捷方式可以直接用吗」的判据（**纯函数**，便于钉住回归）：
+        /// 三件事必须同时成立 —— ① 快捷方式文件在；② 它的 AUMID 是我们的；③
+        /// **它指向的就是当前这个 exe，而且那个 exe 确实存在**。
+        ///
+        /// ★ 第 ③ 条曾经漏掉（2026-09 实测）：只查①+②时，用户移动或删除安装目录后
+        ///   （**卸载就是删安装目录**；手动清理 bin 也一样）快捷方式会变成死链 ——
+        ///   点它没反应，而应用每次启动都判定"已存在且 AUMID 正确"直接返回，**永不自愈**。
+        /// </summary>
+        internal static bool ShortcutUsable(bool lnkExists, string? lnkAumid, string resolvedTarget,
+                                            string? expectedExe, bool targetExists)
+            => lnkExists
+               && string.Equals(lnkAumid, Aumid, StringComparison.Ordinal)
+               && targetExists
+               && !string.IsNullOrEmpty(expectedExe)
+               && string.Equals(resolvedTarget, expectedExe, StringComparison.OrdinalIgnoreCase);
 
         private static void CreateShortcut(string lnk, string exe)
         {

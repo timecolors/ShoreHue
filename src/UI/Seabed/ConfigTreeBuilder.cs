@@ -29,14 +29,17 @@ namespace ShoreHue.UI.Seabed
             return FindRecursive(root, key);
         }
 
-        /// <summary>按 Key 返回节点路径的名称链（如 [区域, 触发与位置]）；未找到返回空。用于树↔文件夹映射。</summary>
+        /// <summary>按 Key 返回节点路径的名称链（如 [区域, 触发与位置]）；未找到返回空。用于树↔文件夹映射。
+        /// ★ **不含根节点名**：根「海床」= seabed 目录本身那一层（资源管理器的根），不是一层文件夹。
+        ///   含根会让落盘路径多一级（seabed/海床/区域/…），扫描与读取都按 seabed/&lt;分类&gt;/… 找 → 节点存了却读不回来。</summary>
         public static System.Collections.Generic.List<string> FindPathNames(string key)
         {
             var result = new System.Collections.Generic.List<string>();
             if (string.IsNullOrEmpty(key)) return result;
             var root = Build();
-            if (FindPathRecursive(root, key, result)) return result;
-            return new System.Collections.Generic.List<string>();
+            if (!FindPathRecursive(root, key, result)) return new System.Collections.Generic.List<string>();
+            result.RemoveAt(0);   // 去掉根：树根对应 seabed 目录本身（key="root" → 返回空，调用方走分类目录兜底）
+            return result;
         }
 
         private static bool FindPathRecursive(ConfigNode n, string key, System.Collections.Generic.List<string> path)
@@ -186,13 +189,14 @@ namespace ShoreHue.UI.Seabed
             var widget = new ConfigNode { Key = "panel-widgets", Name = "小组件", Category = "面板" };
             widget.Children.Add(Leaf("widget-clipboard", "剪贴板", "面板",
                 "WidgetEnabled_Clipboard", "ClipboardMaxCount", "ClipboardDisplayLength",
-                "ClipboardImageMaxWidth", "ClipboardImageCacheLimitMB", "LastWidgetTab"));
+                "ClipboardImageMaxWidth", "ClipboardImageCacheLimitMB", "ClipboardKeyboardNav", "ClipboardShowSourceApp", "LastWidgetTab"));
             widget.Children.Add(Leaf("widget-note", "便签", "面板",
-                "WidgetEnabled_Note", "DefaultNoteColor", "NoteShowTitleByDefault"));
+                "WidgetEnabled_Note", "DefaultNoteColor", "NoteShowTitleByDefault",
+                "NoteHotkeyNew", "NoteHotkeyDelete", "NoteHotkeyNext"));
             widget.Children.Add(Leaf("widget-timer", "计时器", "面板", "WidgetEnabled_Timer"));
-            widget.Children.Add(Leaf("widget-calculator", "计算器", "面板", "WidgetEnabled_Calculator"));
+            widget.Children.Add(Leaf("widget-calculator", "计算器", "面板", "WidgetEnabled_Calculator", "CalculatorHistoryLimit"));
             widget.Children.Add(Leaf("widget-textai", "划词翻译", "面板",
-                "WidgetEnabled_TextAi", "TextAiHotkey"));
+                "WidgetEnabled_TextAi", "TextAiHotkey", "TextAiTargetLanguage", "TextAiHistoryLimit"));
             widget.Children.Add(Leaf("widget-web", "网页工具", "面板", "WidgetEnabled_Web", "WebWidgetUrl"));
             c.Children.Add(widget);
 

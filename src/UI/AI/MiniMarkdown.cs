@@ -274,7 +274,11 @@ namespace ShoreHue.UI.AI
                                 Process.Start(new ProcessStartInfo(e.Uri.ToString()) { UseShellExecute = true });
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            // 用户点了 Markdown 里的链接却没打开浏览器（低频，便于排查）
+                            ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[Markdown] 打开链接失败：{ex.Message}");
+                        }
                         e.Handled = true;
                     };
                     return hl;

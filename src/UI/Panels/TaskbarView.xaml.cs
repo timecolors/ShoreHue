@@ -23,6 +23,8 @@ namespace ShoreHue.UI.Panels
         // 数据集合
         private readonly ObservableCollection<TaskbarItem> _shortcuts = new();
         private readonly ObservableCollection<TaskbarItem> _windows = new();
+        /// <summary>★ 分组显示列表：窗口标签（TaskbarItem）或分组标签（TaskbarGroupItem）。</summary>
+        private readonly ObservableCollection<object> _windowDisplay = new();
 
         public ObservableCollection<TaskbarItem> Shortcuts => _shortcuts;
         public ObservableCollection<TaskbarItem> Windows => _windows;
@@ -79,7 +81,10 @@ namespace ShoreHue.UI.Panels
         {
             _settings = settings;
             _windowSource = windowSource;
+            // ★ 启动卡顿定位用分段计时（面板第一次加载时这几段串在 UI 线程上，实测"第二阶段"里有约 5 秒空白）
+            var swInit = System.Diagnostics.Stopwatch.StartNew();
             InitializeComponent();
+            long tXaml = swInit.ElapsedMilliseconds;
             DataContext = this;
 
             VerticalAlignment = VerticalAlignment.Stretch;
@@ -89,10 +94,15 @@ namespace ShoreHue.UI.Panels
 
             IconSize = _settings.TaskbarIconSize;
             _shortcutManager = new TaskbarShortcutManager(shortcutService);
+            long tShortcuts = swInit.ElapsedMilliseconds;
             _shortcutManager.ItemsChanged += OnItemsChanged;
 
             LoadItems();
+            long tItems = swInit.ElapsedMilliseconds;
             UpdateLayout();
+            ShoreHue.Core.Infrastructure.Logging.LogManager.Debug(
+                $"[任务栏] 构建耗时 {tItems}ms：XAML {tXaml}ms / 快捷方式管理 {tShortcuts - tXaml}ms / " +
+                $"加载条目+窗口图标 {tItems - tShortcuts}ms / UpdateLayout {swInit.ElapsedMilliseconds - tItems}ms");
 
             Loaded += OnLoaded;
             Unloaded += OnUnloaded;
@@ -118,7 +128,7 @@ namespace ShoreHue.UI.Panels
         /// <summary>窗口事件钩子回调（UI 线程）：窗口列表变化时刷新（节流已由钩子合并）。</summary>
         private void OnWindowEventChanged()
         {
-            try { RefreshWindows(); } catch { }
+            try { RefreshWindows(); } catch { /* 尽力而为：这次刷新失败时列表保持上一次内容，下一次窗口事件会再刷 */ }
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
@@ -152,6 +162,7 @@ namespace ShoreHue.UI.Panels
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
         {
+            CloseAllGroupPopups();   // ★ 面板卸载 → 关掉分组弹层并解除保持显示，避免浮层留在屏幕上
             _refreshTimer?.Stop();
             _refreshTimer = null;
 

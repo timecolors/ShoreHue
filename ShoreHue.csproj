@@ -3,6 +3,12 @@
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
 		<TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+		<!-- ★ 实际支持的最低系统版本要**显式声明**，不能靠 TFM 默认值：
+		     TFM 的 19041 是"编译目标"，不写这一行时运行时支持底线就被当成 19041，
+		     而 README / MSIX 清单一直对外宣称 Windows 10 1809（17763）可用 —— 三方口径不一致。
+		     这里按对外承诺声明 17763，让编译器（CA1416）替我们验证"没有用到 17763 之后才有的 API"；
+		     若构建报平台兼容告警，说明真正的底线是 19041，那时应当改的是 README 与清单，而不是这一行。 -->
+		<TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
 		<!-- 已安装更高主版本运行时（如 .NET 11）时允许滚动 -->
 		<RollForward>LatestMajor</RollForward>
 		<Nullable>enable</Nullable>
@@ -14,9 +20,9 @@
 		<RootNamespace>ShoreHue</RootNamespace>
 
 		<!-- ★★★ 版本与产品信息（显示在文件属性/任务管理器/关于页） ★★★ -->
-		<Version>1.1.0</Version>
-		<FileVersion>1.1.0.0</FileVersion>
-		<AssemblyVersion>1.1.0.0</AssemblyVersion>
+		<Version>1.1.1</Version>
+		<FileVersion>1.1.1.0</FileVersion>
+		<AssemblyVersion>1.1.1.0</AssemblyVersion>
 		<Product>ShoreHue 海岸线</Product>
 		<AssemblyTitle>ShoreHue</AssemblyTitle>
 		<Description>Windows 桌面边缘面板工具</Description>
@@ -25,6 +31,15 @@
 
 		<!-- ★★★ 禁用所有默认包含项（避免重复） ★★★ -->
 		<EnableDefaultItems>false</EnableDefaultItems>
+
+		<!-- ★ WFO0003：WinForms 分析器建议把高 DPI 设置从 app.manifest 挪到 ApplicationHighDpiMode。
+		     本项目是 WPF 应用，PerMonitorV2 必须由**清单**声明（WPF 没有该 API），
+		     照建议改会丢掉多屏不同缩放下的正确性 —— 因此显式豁免并留下原因。 -->
+		<NoWarn>$(NoWarn);WFO0003</NoWarn>
+
+		<!-- ★ 构建必须保持零告警：可空性告警（CS8604/CS8618）在本项目里正是"空引用路径"的静态证据
+		     （真实的沙箱绕过与崩溃路径就是从这些告警里读出来的）。以前它们只躺在构建输出里没人看。 -->
+		<TreatWarningsAsErrors>true</TreatWarningsAsErrors>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -35,6 +50,7 @@
 		<InternalsVisibleTo Include="FpsProbe" />
 		<InternalsVisibleTo Include="HookIntegProbe" />
 		<InternalsVisibleTo Include="CodecifyProbe" />
+		<InternalsVisibleTo Include="MarketValidator" />
   		<InternalsVisibleTo Include="ScreenshotGen" />
 	</ItemGroup>
 
@@ -47,7 +63,7 @@
 		<PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
 		<PackageReference Include="System.Management" Version="10.0.11" />
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.11" />
-		<PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.11" />
+		<!-- System.Security.Cryptography.ProtectedData：.NET 10 起随框架自动可用（NU1510），无需显式引用 -->
 		<PackageReference Include="System.IO.FileSystem.AccessControl" Version="5.0.0" />
 	</ItemGroup>
 
@@ -58,38 +74,21 @@
 			<SubType>Designer</SubType>
 		</ApplicationDefinition>
 
-		<!-- ★★★ 所有 XAML 文件（Page） ★★★ -->
-		<Page Include="src\UI\Main\MainWindow.xaml" />
-		<Page Include="src\UI\Panels\TaskbarView.xaml" />
-		<Page Include="src\UI\Settings\SettingsWindow.xaml" />
-		<Page Include="src\UI\Settings\Pages\SeabedPage.xaml" />
-		<Page Include="src\UI\Settings\WeatherCityPickerWindow.xaml" />
-		<Page Include="src\UI\Settings\Pages\ShortcutManagementPage.xaml" />
-		<Page Include="src\UI\Status\SystemStatusView.xaml" />
-		<Page Include="src\UI\Theme\Theme.xaml" />
-		<Page Include="src\UI\Theme\AppIcons.xaml" />
-		<Page Include="src\UI\AppHelper\AppHelperView.xaml" />
-		<Page Include="src\UI\AppHelper\MediaControlView.xaml" />
-		<Page Include="src\UI\Panels\NotificationDockView.xaml" />
-		<Page Include="src\UI\Panels\RecentItemsView.xaml" />
-		<Page Include="src\UI\Panels\QuickSettingsView.xaml" />
-		<Page Include="src\UI\Media\PanelMediaPlayer.xaml" />
-		<Page Include="src\UI\Media\WindowPickerWindow.xaml" />
-		<Page Include="src\UI\Onboarding\OnboardingWindow.xaml" />
-		<Page Include="seabed\小组件\calculator\CalculatorWidget.xaml" />
-		<Page Include="seabed\小组件\timer\TimerWidget.xaml" />
-		<Page Include="seabed\小组件\clipboard\ClipboardHistoryWidget.xaml" />
-		<Page Include="seabed\小组件\note\NoteWidget.xaml" />
-		<Page Include="src\UI\Widgets\WidgetSwitcher.xaml" />
-		<Page Include="seabed\小组件\textai\TextAiWidget.xaml" />
-		<Page Include="src\UI\Widgets\WindowControlView.xaml" />
-		<Page Include="src\UI\AI\AiChatView.xaml" />
+		<!-- ★★★ 所有 XAML 文件（Page）：**全部通配** ★★★
+		     ★ 原先 src 下是 20 条手写路径 —— 实测与磁盘上的 20 个 .xaml 一一对应，故换成通配。
+		       新增界面文件不必再改本文件；seabed 下的小组件同理。
+		     ★ 注意：App.xaml 是根目录下的 <ApplicationDefinition>，不在 src 下，不受这里影响。 -->
+		<Page Include="src\**\*.xaml" />
+		<Page Include="seabed\小组件\**\*.xaml" />
 
-		<!-- ★★★ 所有 CS 文件（递归包含） ★★★ -->
-		<Compile Include="src\**\*.cs" Exclude="**\obj\**\*.cs;src\UI\Widgets\Calculator\**;src\UI\Widgets\Timer\**;src\UI\Widgets\ClipboardHistory\**;src\UI\Widgets\Notes\**;src\UI\Widgets\TextAi\**;src\UI\Widgets\WebViewWidget.cs" />
+		<!-- ★★★ 所有 CS 文件（递归包含） ★★★
+		     ★ Exclude 只留 obj：原先还排除了 6 个早已不存在的路径（src\UI\Widgets\Calculator\** 等，
+		       那批内置件已迁到 seabed\小组件\）。死 Exclude 不只是没用 —— 它会**静默排除将来新建的同名文件**，
+		       哪天有人在 src/UI/Widgets/Calculator/ 下写个类，编译会说找不到它且毫无提示。 -->
+		<Compile Include="src\**\*.cs" Exclude="**\obj\**\*.cs" />
 		<Compile Include="seabed\**\*.cs" Exclude="**\obj\**\*.cs" />
-		<Compile Remove="src\UI\Debug\**" />
 		<Compile Include="App.xaml.cs" />
+		<Compile Include="AssemblyInfo.cs" />
 		<Compile Include="Properties\Settings.Designer.cs" />
 
   	<!-- ★★★ 资源文件 ★★★ -->
@@ -99,10 +98,18 @@
   	<!-- ★ 水面像素着色器（fxc 编译产物，嵌入程序集，pack URI 加载） -->
 
 
-  	<!-- ★★★ AI 编程指南（海床界面按钮打开；发布时随 exe 携带） ★★★ -->
-  	<None Include="docs\AI-PROGRAMMING.md">
-  		<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-  	</None>
+  	<!-- ★ AI 编程指南现在以**嵌入资源**身份参与构建（见下面 ItemGroup 的 EmbeddedResource）。
+  	     这里原先还有一条 <None Include="docs\AI-PROGRAMMING.md" CopyToOutputDirectory>：
+  	     它只把文件复制成 bin/ 与 publish/ 里的副本，而 CI 发布只上传那一个 exe —— 发布版拿不到，
+  	     实测点「AI 编程指南」只会提示"文档未随程序发布"。已删除，避免同一文件两种身份。 -->
+
+		<!-- ★★★ AI 编程指南：**嵌入程序集**，发布版与开发机同一条读取路径 ★★★
+		     原先只靠 <None CopyToOutputDirectory> 复制成文件（它确实会进 bin 与 publish/），
+		     但 CI 的 Release 只上传那一个 exe → 发布版里点「AI 编程指南」只会提示"文档未随程序发布"。
+		     改成嵌入资源后：Release 保持单文件，代码里那个"向上找 ShoreHue.csproj"的环境探测也能删掉。 -->
+		<EmbeddedResource Include="docs\AI-PROGRAMMING.md">
+			<LogicalName>ShoreHue.Docs.AI-PROGRAMMING.md</LogicalName>
+		</EmbeddedResource>
 
 		<!-- ★★★ 本地化资源（中英双语嵌入资源） ★★★ -->
 		<EmbeddedResource Include="src\UI\Localization\Strings.resx">
@@ -110,6 +117,19 @@
 		</EmbeddedResource>
 		<EmbeddedResource Include="src\UI\Localization\Strings.en-US.resx">
 			<LogicalName>ShoreHue.UI.Localization.Strings.en-US.resources</LogicalName>
+		</EmbeddedResource>
+
+		<!-- ★★★ 海床内置小组件源码的内嵌副本（**通配自动包含**，新增小组件不用改本文件）★★★
+		     为什么需要：发布版（单文件 exe / MSIX）里**没有源码树**。BuiltinTemplateSeeder
+		     靠 FindSourceRoot() 向上找 ShoreHue.csproj，用户机器上必然返回 null，于是小组件
+		     在用户机器上落不了盘 —— 海床里只剩空目录（2026-09 用官方 v1.1.0 exe 实测确认）。
+		     .xaml 走 <Page>、.cs 走 <Compile>，两者都只把**编译结果**带进 exe，原始文本一个字节没留，
+		     所以这里额外嵌一份原始文件，供 LoadWidgetFiles 在源码目录不可用时回退读取。
+		     ★ 资源名形如 ShoreHue.Seabed.Widgets.<id>.<原文件名>，由下面一行**自动推导**：
+		       %(RecursiveDir) 即 <id>\ 那一段，用属性函数把 '\' 换成 '.'。
+		     ★ 新增小组件 = 往 seabed\小组件\ 丢一个目录，本文件一个字都不用改。 -->
+		<EmbeddedResource Include="seabed\小组件\**\*.xaml;seabed\小组件\**\*.cs">
+			<LogicalName>ShoreHue.Seabed.Widgets.$([System.String]::Copy('%(RecursiveDir)').Replace('\','.'))%(Filename)%(Extension)</LogicalName>
 		</EmbeddedResource>
 		<None Update="Properties\Settings.settings">
 			<Generator>SettingsSingleFileGenerator</Generator>

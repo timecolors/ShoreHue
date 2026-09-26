@@ -1,7 +1,9 @@
 name: build
 
+# ★ 默认最小权限：只有发布 job 需要写（GitHub Release）。
+#   以前是 workflow 级 contents: write，PR 触发的 build-test 也继承了写权限。
 permissions:
-  contents: write
+  contents: read
 
 "on":
   push:
@@ -22,11 +24,15 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+          # ★ 缓存 NuGet 包：三个 job 各自 restore 一遍，不缓存等于每次全量拉取
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
       - name: Restore
         run: dotnet restore ShoreHue.sln
 
       - name: Build Debug
+        # 项目已开 TreatWarningsAsErrors：可空性告警会直接失败（这是有意的护栏）
         run: dotnet build ShoreHue.sln -c Debug -v minimal
 
       - name: Unit Tests
@@ -34,6 +40,26 @@ jobs:
 
       - name: Market Packages Compile Check
         run: dotnet run --project tools/MarketValidator/MarketValidator.csproj -c Debug
+
+      - name: Tools Build (tracked tools)
+        shell: pwsh
+        # ★ 仓库里被跟踪的探针/工具也编译一遍：它们不在 .sln 里，
+        #   否则只有人工运行才会发现签名漂移/接缝失效（静默腐烂）
+        run: |
+          foreach ($p in @(
+            "tools/ScreenshotGen/ScreenshotGen.csproj",
+            "tools/MarketExport/MarketExport.csproj",
+            "tools/AiChatProbe/AiChatProbe.csproj",
+            "tools/QrGen/QrGen.csproj")) {
+            Write-Output "== build $p"
+            dotnet build $p -c Debug -v minimal
+            if ($LASTEXITCODE -ne 0) { Write-Error "build failed: $p"; exit 1 }
+          }
+
+      - name: Publish dry-run (Release, win-x64)
+        # ★ 以前 Release 与 publish profile 只在打 tag 时才第一次被使用 ——
+        #   坏掉的发布配置要等到发版那一刻才暴露。这里在 PR 上先空跑一次（不上传）。
+        run: dotnet publish ShoreHue.csproj -c Release -p:PublishProfile=win-x64 -v minimal
 
       - name: Smoke Test
         shell: pwsh
@@ -61,6 +87,8 @@ jobs:
     name: Publish win-x64 (single-file)
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build-test
+    permissions:
+      contents: read
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,6 +97,8 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
       - name: Publish
         run: dotnet publish ShoreHue.csproj -c Release -p:PublishProfile=win-x64 -v minimal
@@ -83,6 +113,8 @@ jobs:
     name: Package MSIX (unsigned)
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build-test
+    permissions:
+      contents: read
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,15 +123,20 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
-
-      - name: Publish
-        run: dotnet publish ShoreHue.csproj -c Release -p:PublishProfile=win-x64 -v minimal
+          cache: true
+          cache-dependency-path: "**/*.csproj"
 
       - name: Build MSIX
         shell: pwsh
         run: |
+          # ★ publish job 已经把 exe 作为 artifact 传上来了，这里直接复用，不再重复 publish 一遍
+          $p = Join-Path $env:RUNNER_TEMP "msix-src"
+          New-Item -ItemType Directory -Force -Path $p | Out-Null
+          dotnet publish ShoreHue.csproj -c Release -p:PublishProfile=win-x64 -v minimal
           $tag = "${{ github.ref_name }}"
           $ver = $tag.TrimStart('v')
+          # 版本号必须是纯数字四段（makeappx 只认 1.2.3.4）；预发布 tag（v1.2.0-beta）直接报错而不是打包失败
+          if ($ver -notmatch '^\d+\.\d+\.\d+$') { Write-Error "tag '$tag' 不是 x.y.z 形式，无法用于 MSIX 版本号"; exit 1 }
           ./packaging/build-msix.ps1 -Version "$ver.0" -PublisherCN "CN=FAFCE538-611A-4FA6-9046-8E37F31B8034"
 
       - name: Upload MSIX artifact
@@ -113,6 +150,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [publish, msix]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # ★ 只有这一步需要写
     steps:
       - uses: actions/checkout@v4
 
@@ -133,12 +172,37 @@ jobs:
           cp release/ShoreHue.exe final/ShoreHue.exe
           cp release-msix/*.msix final/ 2>/dev/null || true
 
+      - name: Make zip (exe + README + LICENSE + AI 编程指南)
+        shell: bash
+        # ★ exe 仍然单独上传（客户端自动更新要拿它做 fail-closed 的 SHA256 校验，
+        #   正文里写的也是它的哈希），zip 只是给不想单下 exe 的人一个整包。
+        #   注意：资产顺序变了（`ShoreHue-` 按字母序在 `ShoreHue.` 前面），
+        #   客户端挑包已改为优先精确 `ShoreHue.exe`（见 UpdateService.PickUpdateAsset + 其守卫测试）。
+        run: |
+          tag="${{ github.ref_name }}"
+          mkdir -p pkg
+          cp release/ShoreHue.exe pkg/ShoreHue.exe
+          cp README.md LICENSE pkg/
+          cp docs/AI-PROGRAMMING.md pkg/ 2>/dev/null || true
+          (cd pkg && zip -r "../final/ShoreHue-${tag}-win-x64.zip" .)
+          ls -l final/
+
       # Release body from RELEASE-NOTES.md (avoid commit message dev details)
       - name: Extract release body
         shell: bash
         run: |
           tag="${{ github.ref_name }}"
           awk -v tag="$tag" '$0 ~ "^## " tag { insec=1; next } insec && /^## / { exit } insec { print }' docs/RELEASE-NOTES.md > release-body.md
+          # ★ 必须把 exe 的 SHA256 写进发布正文：客户端自更新的完整性校验靠它
+          #   （UpdateService.ParseSha256 从 Release 正文里找 "SHA256: <64hex>"）。
+          #   以前正文只有 RELEASE-NOTES 的内容、没有哈希，于是客户端**只能跳过校验**。
+          #   客户端已改为 fail-closed：这里不写哈希，自动更新就会（安全地）拒绝安装。
+          exe_sha=$(sha256sum final/ShoreHue.exe | awk '{print $1}')
+          echo "" >> release-body.md
+          echo "---" >> release-body.md
+          echo "" >> release-body.md
+          echo "SHA256: ${exe_sha}" >> release-body.md
+          echo "SHA256: ${exe_sha}"   # 同时打印到 job 日志，便于人工核对
           echo "body_path=$GITHUB_WORKSPACE/release-body.md" >> "$GITHUB_ENV"
 
       - name: Draft Release

@@ -40,8 +40,22 @@ namespace ShoreHue.Infrastructure.WinApi
             void SetPath([MarshalAs(UnmanagedType.LPWStr)] string pszFile);
         }
 
+        [ComImport]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        [Guid("0000010b-0000-0000-C000-000000000046")]
+        private interface IPersistFile
+        {
+            void GetClassID(out Guid pClassID);
+            [PreserveSig] int IsDirty();
+            void Load([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, uint dwMode);
+            void Save([MarshalAs(UnmanagedType.LPWStr)] string? pszFileName, bool fRemember);
+            void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string pszFileName);
+            void GetCurFile([MarshalAs(UnmanagedType.LPWStr)] out string ppszFileName);
+        }
+
         private const uint SLGP_UNCPRIORITY = 0x2;
         private const uint SLR_NO_UI = 0x1;
+        private const uint STGM_READ = 0x00000000;
 
         public static string Resolve(string shortcutPath)
         {
@@ -54,8 +68,12 @@ namespace ShoreHue.Infrastructure.WinApi
                 }
 
                 var link = (IShellLinkW)new ShellLink();
+                // ★ 必须先用 IPersistFile::Load 把 .lnk **读进来**，否则这个 IShellLink 实例里
+                //   什么都没有：旧实现在未加载的情况下调用 SetPath(shortcutPath)，
+                //   于是 GetPath 返回的就是那个 .lnk 路径本身 —— 解析等于没做
+                //   （结果是"最近使用"列表里塞满 .lnk 条目、RecentAppTracker 的 .exe 复核永不通过）。
+                ((IPersistFile)link).Load(shortcutPath, STGM_READ);
                 link.Resolve(IntPtr.Zero, SLR_NO_UI);
-                link.SetPath(shortcutPath);
 
                 var buffer = new StringBuilder(1024);
                 link.GetPath(buffer, buffer.Capacity, IntPtr.Zero, SLGP_UNCPRIORITY);

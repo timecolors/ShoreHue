@@ -197,8 +197,9 @@ namespace ShoreHue.UI.Seabed
 
         private async void OnLoaded(object sender, RoutedEventArgs e)
         {
-            // 自动复制验证码
-            try { await SetClipboardAsync(_userCode); } catch { }
+            // 自动复制验证码：复制不上也不影响授权（验证码就显示在界面上，用户可手抄）
+            try { await SetClipboardAsync(_userCode); }
+            catch (Exception ex) { ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[登录] 自动复制验证码失败（可手动复制）：{ex.Message}"); }
             _status.Text = "等待授权…（请在浏览器输入验证码 " + _userCode + "）";
 
             for (int i = 0; i < 60 && !_cts.IsCancellationRequested; i++)

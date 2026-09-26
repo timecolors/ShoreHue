@@ -42,7 +42,7 @@ namespace ShoreHue.Infrastructure.Utils
                         _dipScale = physW / dipW;
                     }
                 }
-                catch { }
+                catch { /* 取不到 DPI 缩放就按 100% 算（下面 _dipScale<=0 有兜底） */ }
                 if (_dipScale <= 0) _dipScale = 1.0;
                 return _dipScale;
             }

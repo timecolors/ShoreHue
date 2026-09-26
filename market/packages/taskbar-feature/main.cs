@@ -17,8 +17,9 @@ namespace ShoreHue.Builtin
         public TaskbarPanel()
         {
             // 从服务容器取内置服务（运行在 ShoreHue 内时已注册；独立验证环境无服务时显示占位而非崩溃）
-            var shortcuts = ServiceManager.Instance.GetService<ShortcutManager>() as IShortcutService;
-            var settings = ServiceManager.Instance.GetService<SettingsManager>() as ISettingsService;
+            // ★ 安全 v2：外来来源只能用窄接口
+            var shortcuts = ShoreHue.UI.Widgets.HostCapabilities.Shortcuts;
+            var settings = ShoreHue.UI.Widgets.HostCapabilities.Settings;
             if (shortcuts == null || settings == null)
             {
                 Content = new TextBlock
@@ -32,21 +33,8 @@ namespace ShoreHue.Builtin
                 return;
             }
             var inner = new TaskbarView(shortcuts, settings);
-
-            // 示例：外层加一行自定义标题（不需要可删掉）
-            var header = new TextBlock
-            {
-                Text = "我的任务栏",
-                FontSize = 11,
-                Foreground = new SolidColorBrush(Color.FromRgb(138, 138, 138)),
-                Margin = new Thickness(4, 2, 4, 4)
-            };
-
-            var root = new DockPanel();
-            DockPanel.SetDock(header, Dock.Top);
-            root.Children.Add(header);
-            root.Children.Add(inner);
-            Content = root;
+            // ★ 不加自定义标题行：它挤占标签空间，属多余装饰
+            Content = inner;
         }
 
         public string Name => "任务栏";

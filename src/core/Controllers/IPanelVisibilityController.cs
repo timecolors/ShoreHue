@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace ShoreHue.Core.Controllers
 {
@@ -14,6 +14,9 @@ namespace ShoreHue.Core.Controllers
         bool IsInHideDelay { get; }
 
         void SetPanelLock(bool locked);
+
+        /// <summary>浮层（任务栏分组弹层）展开期间临时保持显示，避免鼠标移上去面板自动收起。</summary>
+        void SetTransientKeepVisible(bool keep);
         void Show(string edge = "");
         void Show();
         void Hide();

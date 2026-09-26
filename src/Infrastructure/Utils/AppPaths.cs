@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -112,7 +112,7 @@ namespace ShoreHue.Infrastructure.Utils
         private static void CopyIfExists(string src, string dst)
         {
             if (!File.Exists(src) || File.Exists(dst)) return;
-            try { File.Copy(src, dst); } catch { }
+            try { File.Copy(src, dst); } catch { /* 尽力而为：旧日志拷不过来不影响启动，也不影响配置 */ }
         }
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]

@@ -14,7 +14,7 @@ namespace ShoreHue.UI.Main
         /// <summary>无参入口（方法组可转 Action，供托盘/热键/JumpList 使用）。</summary>
         private void OpenSettings() => OpenSettings(null);
 
-        private void OpenSettings(string? tabName)
+        internal void OpenSettings(string? tabName)
         {
             try
             {

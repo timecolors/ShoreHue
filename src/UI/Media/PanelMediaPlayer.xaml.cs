@@ -39,6 +39,11 @@ namespace ShoreHue.UI.Media
             // ★ 嵌入/镜像状态检查：窗口被关闭/最小化时及时提示或归还任务栏
             _embedCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             _embedCheckTimer.Tick += (_, _) => CheckEmbedState();
+
+            // ★ 离开可视树时必须停掉所有后台资源（DWM 缩略图注册、抓帧线程、500ms 定时器、窗口事件钩子）。
+            //   AppHelperView.ShowPage 会整体替换 PageContent.Content，面板切走后本视图再无 UI 可停它 ——
+            //   不在这里收尾就是一个"没人能关掉"的常驻定时器 + 未释放的 DWM 注册。
+            Unloaded += (_, _) => StopMirror();
         }
 
         // ================= 来源入口 =================
@@ -273,7 +278,7 @@ namespace ShoreHue.UI.Media
             {
                 thread?.Join(300);
             }
-            catch { }
+            catch { /* 尽力而为：等不到线程结束也不阻塞（后面还有超时/退出兜底） */ }
         }
 
         private void CaptureLoop()
@@ -322,7 +327,7 @@ namespace ShoreHue.UI.Media
                         }), DispatcherPriority.Render);
                     }
                 }
-                catch { }
+                catch { /* 只影响"镜像状态条"的显隐（画面本身照常） */ }
 
                 while (sw.ElapsedMilliseconds < 15)
                 {
@@ -452,7 +457,7 @@ namespace ShoreHue.UI.Media
                     WindowCaptureService.SendMouseEvent(_captureHwnd, WindowCaptureService.MouseMessage.LeftUp, clientX, clientY);
                 }
             }
-            catch { }
+            catch { /* 尽力而为：这次点击没转发到被镜像的窗口（源窗口可能已关闭/提权），不影响播放 */ }
         }
 
         /// <summary>
@@ -506,7 +511,7 @@ namespace ShoreHue.UI.Media
                         WindowCaptureService.SendMouseWheel(_captureHwnd, e.Delta, (int)screenPt.X, (int)screenPt.Y);
                     }
                 }
-                catch { }
+                catch { /* 尽力而为：滚轮没转发过去（源窗口已关闭/提权），事件照常吞掉不冒泡 */ }
                 e.Handled = true;
                 return;
             }
@@ -597,7 +602,7 @@ namespace ShoreHue.UI.Media
                     h);
                 _thumbnailHost.UpdateDestination(dest, dpi);
             }
-            catch { }
+            catch { /* 尽力而为：DWM 缩略图没跟上（画面尺寸短暂不一致，下次布局变化会再对齐） */ }
         }
 
         /// <summary>从源窗口刷新镜像帧尺寸（用于等比计算与鼠标映射）。</summary>

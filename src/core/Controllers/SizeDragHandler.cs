@@ -1,4 +1,5 @@
 using ShoreHue.Core.Detection;
+using ShoreHue.Core.Infrastructure.Logging;
 using System;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -70,7 +71,11 @@ namespace ShoreHue.Core.Controllers
                 if (_mainPanel.IsMouseCaptured)
                     _mainPanel.ReleaseMouseCapture();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 鼠标捕获没释放 → 之后鼠标一直被面板"吸住"（用户可见）
+                LogManager.Warning($"[调整尺寸] 重置时释放鼠标捕获失败（鼠标可能被面板吸住）：{ex.Message}");
+            }
             Mouse.OverrideCursor = null;
         }
 
@@ -158,7 +163,11 @@ namespace ShoreHue.Core.Controllers
                 //   残留 SizeWE 清不掉 → 别处到处双箭头。手柄光标用局部 _mainPanel.Cursor 即可，
                 //   鼠标离开面板自动恢复（竖条 Hand 与手柄互斥由局部光标优先级自然处理）。
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 只是手柄光标反馈（UI 装饰）：失败就保持上一个光标，不影响调整尺寸
+                LogManager.Debug($"[调整尺寸] 更新手柄光标失败（仅光标反馈）：{ex.Message}");
+            }
         }
 
         public void HandleMouseUp(object sender, MouseButtonEventArgs e)
@@ -190,14 +199,21 @@ namespace ShoreHue.Core.Controllers
                 if (_mainPanel.IsMouseCaptured)
                     _mainPanel.ReleaseMouseCapture();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[调整尺寸] 强制释放鼠标捕获失败（鼠标可能被面板吸住）：{ex.Message}");
+            }
             try
             {
                 LockRequest?.Invoke(false);
                 UserResizeStarted?.Invoke(false);
                 ResizeEnded?.Invoke();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 订阅者抛异常 → 收尾动作（解锁/隐藏面板）可能只做了一半，必须留痕
+                LogManager.Warning($"[调整尺寸] 通知尺寸调整结束失败（面板可能未解锁）：{ex.Message}");
+            }
             Mouse.OverrideCursor = null;
         }
 

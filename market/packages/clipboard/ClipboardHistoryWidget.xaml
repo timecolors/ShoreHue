@@ -54,13 +54,17 @@
 
         <!-- 列表（含收藏按钮） -->
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" MaxHeight="280">
-            <ItemsControl x:Name="HistoryList" Background="Transparent">
+            <ItemsControl x:Name="HistoryList" Background="Transparent"
+                          PreviewMouseDown="List_PreviewMouseDown"
+                          PreviewMouseUp="List_PreviewMouseUp"
+                          KeyDown="List_KeyDown" Focusable="True">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Border Background="Transparent"
                                 Padding="2,2"
                                 Cursor="Hand"
-                                MouseLeftButtonUp="Item_Click">
+                                ToolTip="{Binding SourceApp}"
+                                >
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
@@ -71,14 +75,12 @@
 
                                 <CheckBox Grid.Column="0"
                                           Margin="0,0,6,0"
-                                          VerticalAlignment="Center"
-                                          Checked="Item_Checked"
-                                          Unchecked="Item_Unchecked"/>
+                                          VerticalAlignment="Center"/>
 
                                 <!-- ★ 收藏按钮（☆/★） -->
                                 <Button Grid.Column="1"
                                         x:Name="PinBtn"
-                                        Click="Pin_Click"
+                                        Tag="pin"
                                         Width="18" Height="18"
                                         FontSize="11"
                                         Background="Transparent"
@@ -101,12 +103,32 @@
                                     </Button.Style>
                                 </Button>
 
+                                <!-- ★ 长条目默认只显示「预览行数」行；鼠标悬停即展开全文、移开收回。
+                                     三个坑都踩过了，别再改回去：
+                                     ① 事件不能用 MouseEnter/MouseLeave —— 允许的事件集合就是
+                                        XamlCodeGenerator.EventNames，里面没有它们（市场包会被沙箱直接拦下）。
+                                     ② 收起高度**不能**写成元素上的 MaxHeight="..."：局部值优先级**高于**
+                                        样式触发器，写在那里会让下面的 IsMouseOver 触发器永远不生效。
+                                     ③ Style.Setter.Value **不支持 Binding**，所以收起高度走 DynamicResource
+                                        （由代码后置按「预览行数」设置写入）。 -->
                                 <TextBlock Grid.Column="2"
                                            Text="{Binding DisplayText}"
                                            FontSize="12"
                                            Foreground="#EEEEEE"
-                                           TextTrimming="CharacterEllipsis"
-                                           VerticalAlignment="Center"/>
+                                           TextWrapping="Wrap"
+                                           LineHeight="16"
+                                           VerticalAlignment="Center">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="MaxHeight" Value="{DynamicResource ClipCollapsedHeight}"/>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="MaxHeight" Value="Infinity"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
 
                                 <!-- 单条删除 -->
                                 <Button Grid.Column="3"
@@ -117,7 +139,7 @@
                                         Background="Transparent"
                                         BorderThickness="0"
                                         Cursor="Hand"
-                                        Click="DeleteItem_Click"
+                                        Tag="del"
                                         Margin="4,0,0,0"
                                         VerticalAlignment="Center"/>
                             </Grid>

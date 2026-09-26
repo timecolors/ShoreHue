@@ -1,4 +1,4 @@
-﻿using ShoreHue.Core.Services;
+using ShoreHue.Core.Services;
 using ShoreHue.Core.Services.Ai;
 using ShoreHue.Core.Services.Configuration;
 using ShoreHue.Infrastructure.Utils;
@@ -36,6 +36,14 @@ namespace ShoreHue.UI.Settings
 
         private string _selectedWidgetKey = "";
 
+        /// <summary>
+        /// 正在重建小组件列表（Children.Clear() + 重新加行）。
+        /// 重建期间**必须抑制勾选框写回**：Clear() 会把正在被点击的勾选框从可视树里拔掉，
+        /// 它随后回落成"未勾选"并触发一次 Unchecked → 把用户刚勾上的启用状态立刻写回 false
+        /// （实测日志里出现过相隔 100ms 的相反两次状态：先 true 后 false，最终落盘 false）。
+        /// </summary>
+        private bool _rebuildingWidgetRows;
+
         /// <summary>刷新左侧小组件列表（内置 + 用户插件），保持当前选中项。</summary>
         /// <summary>在系统文件管理器中打开小组件文件夹。</summary>
         private void BtnOpenWidgetFolder_Click(object sender, RoutedEventArgs e)
@@ -46,18 +54,32 @@ namespace ShoreHue.UI.Settings
         private void RefreshWidgetMarket()
         {
             if (WidgetMarketList == null) return;
+            // ★ 重建期间抑制勾选框写回（理由见 _rebuildingWidgetRows 注释）。
+            //   用 try/finally：中途抛异常也不能把标志留在 true，否则之后所有勾选都失效。
+            _rebuildingWidgetRows = true;
+            try { RefreshWidgetMarketCore(); }
+            finally { _rebuildingWidgetRows = false; }
+        }
+
+        private void RefreshWidgetMarketCore()
+        {
             WidgetPluginStore.Reload();
             WidgetMarketList.Children.Clear();
 
             foreach (var kv in _builtinLocKeys)
-                AddMarketItem(kv.Key, LocalizationManager.Instance[kv.Value]);
+                AddMarketItem(kv.Key, WithIssueMark(kv.Key.ToLowerInvariant(), LocalizationManager.Instance[kv.Value]));
             foreach (var plugin in WidgetPluginStore.Installed)
+            {
+                // ★ 内置件（如已文件化的 timer）已由上面的 _builtinLocKeys 列出，
+                //   这里再列一次会出现两行同名条目（一行用本地化名、一行用 manifest 名）。
+                if (plugin.IsBuiltin) continue;
                 AddPluginMarketItem(plugin);
+            }
             // ★ 海床保存的小组件变体（BaseType=Widget）：作为启停项列出（前缀区分）
             foreach (var cp in _settings.CustomPanels)
             {
                 if (cp.Kind == "Config" || (cp.BaseType ?? "") != "Widget") continue;
-                WidgetMarketList.Children.Add(BuildMarketRow("Seabed_" + cp.Id, cp.Name, null));
+                WidgetMarketList.Children.Add(BuildMarketRow("Seabed_" + cp.Id, WithIssueMark(cp.Id, cp.Name), null));
             }
 
             if (string.IsNullOrEmpty(_selectedWidgetKey) || !KeyExists(_selectedWidgetKey))
@@ -79,7 +101,22 @@ namespace ShoreHue.UI.Settings
 
         private void AddPluginMarketItem(WidgetPlugin plugin)
         {
-            WidgetMarketList.Children.Add(BuildMarketRow("Widget_" + plugin.Id, plugin.Name, plugin));
+            WidgetMarketList.Children.Add(BuildMarketRow("Widget_" + plugin.Id, WithIssueMark(plugin.Id, plugin.Name), plugin));
+        }
+
+        /// <summary>列表项名字后加个"⚠"：这个组件上一次没加载成功（编译失败 / 被沙箱拦）。
+        /// ★ 以前这类失败只写日志，界面上就是"它不见了"，用户完全不知道为什么。</summary>
+        private static string WithIssueMark(string id, string name)
+        {
+            try
+            {
+                return ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.GetLoadIssue(id) == null ? name : name + " ⚠";
+            }
+            catch (Exception ex)
+            {
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[小组件] 读取加载问题失败（{id}）：{ex.Message}");
+                return name;
+            }
         }
 
         /// <summary>构建左侧列表项：勾选框（启用，即时生效）+ 名称按钮（左键选中精调，右键菜单）。</summary>
@@ -95,8 +132,11 @@ namespace ShoreHue.UI.Settings
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 4, 0)
             };
-            chk.Checked += (_, _) => _settings.SetWidgetEnabled(key, true);
-            chk.Unchecked += (_, _) => _settings.SetWidgetEnabled(key, false);
+            // ★ 重建列表期间不写回：Children.Clear() 拔掉正在点击的勾选框会触发一次 Unchecked，
+            //   把用户刚勾上的启用状态立刻改回 false（现象就是"勾了自己又没了 / 刷新不保存"）。
+            //   重建结束后行的勾选状态本来就是从设置里重新读的，所以抑制不会丢用户操作。
+            chk.Checked += (_, _) => { if (!_rebuildingWidgetRows) _settings.SetWidgetEnabled(key, true); };
+            chk.Unchecked += (_, _) => { if (!_rebuildingWidgetRows) _settings.SetWidgetEnabled(key, false); };
             row.Children.Add(chk);
 
             var btn = new System.Windows.Controls.Button
@@ -212,7 +252,7 @@ namespace ShoreHue.UI.Settings
             bool compileOk = string.IsNullOrEmpty(WidgetCompiler.Validate(plugin.Id, plugin.Source));
             var permText = plugin.Permissions.Count == 0
                 ? LocalizationManager.Instance["WidgetMkt_None"]
-                : string.Join(" · ", plugin.Permissions.Select(WidgetPluginStore.PermissionLabel));
+                : string.Join(" · ", plugin.Permissions.Select(ShoreHue.UI.Widgets.Dynamic.WidgetPermissions.PermissionLabel));
             DetailPlugin.Children.Add(new TextBlock
             {
                 Text = (compileOk ? " " : "⚠ 编译失败  ") + permText,
@@ -225,6 +265,34 @@ namespace ShoreHue.UI.Settings
             });
 
             var btnRow = new StackPanel { Orientation = Orientation.Horizontal };
+
+            // ★ 安全 v2：信任开关（信任范围 = 当前这份内容；内容改动后自动失效，需要重新确认）
+            bool isTrusted = ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.IsTrusted(plugin);
+            var btnTrust = new System.Windows.Controls.Button
+            {
+                Content = isTrusted ? "受信任 · 改用沙箱" : "默认沙箱 · 点此信任",
+                Style = (Style)FindResource("Win11Button"),
+                Height = 26,
+                FontSize = 11,
+                Padding = new Thickness(10, 0, 10, 0),
+                ToolTip = isTrusted
+                    ? "当前内容已受信任（不扫描）。内容一旦改动，信任自动失效。"
+                    : "外来代码默认在沙箱中运行：限制文件写入/进程/宿主特权 API 等。仅当你确认这份代码可信时才点此。"
+            };
+            btnTrust.Click += (_, _) =>
+            {
+                if (!isTrusted && MessageBox.Show(
+                        "确定要信任这份代码吗？\n\n信任后它将不再受沙箱限制（可访问文件写入、进程、宿主特权 API 等）。\n" +
+                        "内容一旦改动，信任会自动失效。",
+                        "信任外来代码", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                    return;
+                if (!ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SetTrusted(plugin.Id, !isTrusted))
+                    MessageBox.Show("修改「" + plugin.Name + "」的信任状态失败，详情见日志。",
+                        "操作失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                RefreshWidgetMarket();
+            };
+            btnRow.Children.Add(btnTrust);
+
             var btnDel = new System.Windows.Controls.Button
             {
                 Content = LocalizationManager.Instance["WidgetMkt_Delete"],
@@ -260,8 +328,18 @@ namespace ShoreHue.UI.Settings
             {
                 return;
             }
-            _settings.SetWidgetEnabled("Widget_" + plugin.Id, false);
-            WidgetPluginStore.Delete(plugin.Id);
+            // ★ 先删文件再清开关：删失败就**不要**把启用状态置为 false ——
+            //   否则条目还在列表里、却被记成"用户禁用了它"，而覆盖记录会一直留在
+            //   WidgetPluginOverrides 里：同 id 的包以后重新装回来，默认是禁用状态，
+            //   用户在界面上看不出任何原因（"覆盖"是设置里的显式开关，不会随删除自动消失）。
+            if (!WidgetPluginStore.Delete(plugin.Id))
+            {
+                MessageBox.Show("删除「" + plugin.Name + "」失败：文件可能被占用，详情见日志。",
+                    "删除失败", MessageBoxButton.OK, MessageBoxImage.Warning);
+                RefreshWidgetMarket();
+                return;
+            }
+            _settings.ClearWidgetEnabledOverride("Widget_" + plugin.Id);
             RefreshWidgetMarket();
         }
     }

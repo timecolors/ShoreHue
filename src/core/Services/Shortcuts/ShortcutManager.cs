@@ -1,4 +1,4 @@
-﻿using ShoreHue.Core.Infrastructure.Logging;
+using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.Core.Infrastructure.Service;
 using ShoreHue.src.core.Services.Shortcuts;
 using System;
@@ -183,7 +183,9 @@ namespace ShoreHue.Core.Services
                 if (string.IsNullOrEmpty(path) || !File.Exists(path))
                     return null;
 
-                var icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
+                // ★ using：`Icon` 持有 HICON 句柄，不释放就是每次取图标泄漏一个 GDI 对象。
+                //   本方法在任务栏每次显示、快捷方式管理页每次加载时都会调用（每个条目一次）。
+                using var icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
                 if (icon == null) return null;
 
                 return System.Windows.Interop.Imaging.CreateBitmapSourceFromHIcon(

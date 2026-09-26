@@ -28,7 +28,7 @@ namespace ShoreHue.UI.Panels
                 double availableHeight = Math.Max(1, this.ActualHeight);
                 double iconSize = Math.Max(16, this.IconSize);
                 int shortcutCount = _shortcuts.Count;
-                int windowCount = _windows.Count;
+                int windowCount = _windowDisplay.Count;   // ★ 分组标签也算一个窗口位
 
                 double aspectRatio = availableWidth / availableHeight;
                 // ★ 布局阈值接入设置（默认 0.43，值越大越倾向竖向）
@@ -261,10 +261,15 @@ namespace ShoreHue.UI.Panels
                 _dividerElement = null;
             }
 
-            if (_windowRows > 0 && _windows.Count > 0)
+            if (_windowRows > 0 && _windowDisplay.Count > 0)
             {
                 var scroller = CreateScrollViewer("WindowScroller");
-                var itemsControl = CreateItemsControl((IEnumerable)_windows, "WindowTemplate");
+                var selector = new TaskbarTemplateSelector
+                {
+                    WindowTemplate = (DataTemplate)this.Resources["WindowTemplate"],
+                    GroupTemplate = (DataTemplate)this.Resources["GroupTemplate"]
+                };
+                var itemsControl = CreateItemsControl((IEnumerable)_windowDisplay, "WindowTemplate", selector);
                 scroller.Content = itemsControl;
                 _windowScrollViewer = scroller;
 
@@ -282,7 +287,11 @@ namespace ShoreHue.UI.Panels
                 if (oldShortcutHandler != null)
                 {
                     _shortcutScrollHandler = oldShortcutHandler;
-                    _shortcutScrollHandler.Reattach(_shortcutScrollViewer);
+                    // ★ 必须把当前布局方向一并传回去：`Reattach` 的 isHorizontal 默认值是 true，
+                    //   布局重建（切换布局模式/尺寸变化）后垂直布局的 handler 会被悄悄改成水平 ——
+                    //   于是它去读 position.X、去滚 HorizontalOffset，而垂直布局下水平滚动是 Disabled
+                    //   → 鼠标移到边缘自动滚动彻底失效。
+                    _shortcutScrollHandler.Reattach(_shortcutScrollViewer, IsHorizontalLayout(_currentLayoutMode));
                 }
                 else
                     _shortcutScrollHandler = new TaskbarScrollHandler(_shortcutScrollViewer, "快捷方式");
@@ -300,7 +309,7 @@ namespace ShoreHue.UI.Panels
                 if (oldWindowHandler != null)
                 {
                     _windowScrollHandler = oldWindowHandler;
-                    _windowScrollHandler.Reattach(_windowScrollViewer);
+                    _windowScrollHandler.Reattach(_windowScrollViewer, IsHorizontalLayout(_currentLayoutMode));
                 }
                 else
                     _windowScrollHandler = new TaskbarScrollHandler(_windowScrollViewer, "任务标签");

@@ -40,9 +40,9 @@ namespace ShoreHue.Tests
             string xaml = "<UserControl xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"><StackPanel/></UserControl>";
             string cs = "public partial class TimerWidget : UserControl, IWidget { public TimerWidget(){InitializeComponent();} public string Name => \"计时器\"; public UserControl CreateView() => this; public void OnActivated(){} public void OnDeactivated(){} }";
             Setup(
-                ("面板/小组件/timer/timer.xaml", xaml),
-                ("面板/小组件/timer/timer.xaml.cs", cs),
-                ("面板/小组件/timer/manifest.json", "{\"kind\":\"Widget\",\"system\":true}")
+                ("面板/timer/timer.xaml", xaml),
+                ("面板/timer/timer.xaml.cs", cs),
+                ("面板/timer/manifest.json", "{\"kind\":\"Widget\",\"system\":true}")
             );
             var node = new ConfigNode { Key = "widget-timer", Name = "计时器", Category = "小组件" };
             var (src, x, xc, cfg) = SeabedPageAccess.LoadNodeFromFolder(node, null);
@@ -53,7 +53,7 @@ namespace ShoreHue.Tests
         [Fact]
         public void PanelNode_ReadsMainCs()
         {
-            Setup(("面板/面板功能/panel-notification/main.cs", "public class Panel { }"));
+            Setup(("面板/panel-notification/main.cs", "public class Panel { }"));
             var node = new ConfigNode { Key = "panel-notification", Name = "通知坞", Category = "面板功能" };
             var (src, x, xc, cfg) = SeabedPageAccess.LoadNodeFromFolder(node, null);
             Assert.False(string.IsNullOrEmpty(src), "应读到 main.cs");

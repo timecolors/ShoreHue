@@ -72,6 +72,44 @@
                 </Grid>
             </Border>
         </DataTemplate>
+        <!-- ★ 分组标签：组内图标拼版（2×2）；鼠标放上展开成员、移走收起；右键解散 -->
+        <DataTemplate x:Key="GroupTemplate">
+            <Border Background="#14FFFFFF"
+                    CornerRadius="6"
+                    Cursor="Hand"
+                    Margin="2"
+                    Padding="4"
+                    VerticalAlignment="Stretch"
+                    MouseEnter="Group_MouseEnter"
+                    MouseLeave="Group_MouseLeave"
+                    MouseRightButtonUp="Group_RightClick"
+                    ToolTip="{Binding DisplayName}">
+                <Grid Width="{Binding Path=DataContext.IconSize, ElementName=RootControl, FallbackValue=28}"
+                      Height="{Binding Path=DataContext.IconSize, ElementName=RootControl, FallbackValue=28}">
+                    <ItemsControl ItemsSource="{Binding Preview}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <UniformGrid Rows="2" Columns="2"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Image Source="{Binding Icon}" Margin="1"
+                                       Stretch="Uniform"
+                                       RenderOptions.BitmapScalingMode="HighQuality"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <!-- 成员数角标：一眼看出这是分组（图标为空时也认得出来） -->
+                    <Border HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                            Background="#CC000000" CornerRadius="6" Padding="3,0" Margin="0,0,-4,-4"
+                            IsHitTestVisible="False">
+                        <TextBlock Text="{Binding WindowCount}" FontSize="9" Foreground="#EEEEEE"/>
+                    </Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+
     </UserControl.Resources>
 
     <Grid x:Name="MainGrid" AllowDrop="True" />

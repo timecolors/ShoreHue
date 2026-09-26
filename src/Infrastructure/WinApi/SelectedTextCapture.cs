@@ -150,7 +150,11 @@ namespace ShoreHue.Infrastructure.WinApi
                     baseline = Clipboard.GetText() ?? "";
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：读不到基线 → 基线按空串算，最坏是把"已有内容"当成选中文本（后面还有 UIA 回退）
+                Log("读取剪贴板基线失败（按空基线继续）: " + ex.Message);
+            }
 
             // 保存原剪贴板对象（恢复用）
             IDataObject? original = null;
@@ -160,7 +164,11 @@ namespace ShoreHue.Infrastructure.WinApi
                 original = Clipboard.GetDataObject();
                 hasOriginal = original != null;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：拿不到原剪贴板对象 → 捕获后无法还原（用户原内容被选中文本顶掉，仅此而已）
+                Log("保存原剪贴板对象失败（本次捕获后不还原剪贴板）: " + ex.Message);
+            }
 
             try
             {
@@ -198,7 +206,11 @@ namespace ShoreHue.Infrastructure.WinApi
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 按"没抓到"处理，返回空 Message → 调用方走 UIA 回退（这条路本来就是兜底）
+                    Log("最后一次读取剪贴板失败（转 UIA 回退）: " + ex.Message);
+                }
 
                 return new CaptureResult { Message = "" }; // 交给调用方走 UIA 回退
             }
@@ -239,7 +251,12 @@ namespace ShoreHue.Infrastructure.WinApi
                     SendInput(1, up, Marshal.SizeOf<INPUT>());
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：松键失败最坏是修饰键"逻辑上仍按着"，再点一下该键即可恢复；
+                //   这里不能抛（抛了会把 Ctrl+C 的捕获流程整个打断）
+                Log("释放修饰键失败（最坏情况修饰键保持按下）: " + ex.Message);
+            }
         }
 
         private static INPUT KeyInput(ushort vk, uint flags)
@@ -287,7 +304,11 @@ namespace ShoreHue.Infrastructure.WinApi
                             }
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        // 尽力而为：这个元素的 TextPattern 取不到就试下一个（下面还有 ValuePattern）
+                        Log("UIA TextPattern 读取失败（继续试其它模式）: " + ex.Message);
+                    }
                 }
 
                 // 2. 备用 ValuePattern（简单输入框）
@@ -304,10 +325,18 @@ namespace ShoreHue.Infrastructure.WinApi
                             return v;
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        // 尽力而为：ValuePattern 也取不到 → 该元素放弃，继续遍历
+                        Log("UIA ValuePattern 读取失败（继续遍历）: " + ex.Message);
+                    }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // UIA 整体失败 = 这个应用的控件树读不出来（返回 null，调用方按"没选到"处理）
+                Log("UIA 选区读取整体失败（按未选中处理）: " + ex.Message);
+            }
             return null;
         }
 
@@ -341,7 +370,7 @@ namespace ShoreHue.Infrastructure.WinApi
             {
                 ShoreHue.Core.Infrastructure.Logging.LogManager.Debug("[SelectedTextCapture] " + msg);
             }
-            catch { }
+            catch { /* 记日志本身失败就不再记（避免自我递归） */ }
         }
     }
 }

@@ -5,6 +5,7 @@
   "category": "小组件",
   "version": "1.0.0",
   "author": "timecolors",
+  "publisherId": 176211220,
   "description": "ShoreHue 内置便签：多色 / 编辑 / 置顶。",
   "baseType": "Widget",
   "parentKey": "panel-widgets",

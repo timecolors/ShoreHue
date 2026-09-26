@@ -154,14 +154,20 @@
                                 </Image>
                             </Grid>
                             <StackPanel Grid.Column="1">
+                                <!-- ★ 去掉省略号改换行：应用名与详情（常是长路径）都能看全，
+                                     高度取行高整数倍（4 行），超出时裁剪落在行间。 -->
                                 <TextBlock Text="{Binding Name}"
                                            FontSize="12"
                                            Foreground="#EEEEEE"
-                                           TextTrimming="CharacterEllipsis"/>
+                                           TextWrapping="Wrap"
+                                           LineHeight="16"
+                                           MaxHeight="64"/>
                                 <TextBlock Text="{Binding Detail}"
                                            FontSize="10"
                                            Foreground="#777777"
-                                           TextTrimming="CharacterEllipsis"/>
+                                           TextWrapping="Wrap"
+                                           LineHeight="14"
+                                           MaxHeight="56"/>
                             </StackPanel>
                             <TextBlock Grid.Column="2"
                                        Text="★"

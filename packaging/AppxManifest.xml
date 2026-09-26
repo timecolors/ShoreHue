@@ -5,9 +5,11 @@
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          IgnorableNamespaces="uap desktop rescap">
   <!-- ★ 产品身份（来自合作伙伴中心 Product identity，勿手改） -->
+  <!-- ★ Version 只是模板值：CI 打包时会用 tag 覆写（见 .github/workflows/build.yml 的 MSIX job）。
+       这里保持与 ShoreHue.csproj 的 <Version> 同步，避免手工跑 build-msix.ps1 时打出降级版本号的包。 -->
   <Identity Name="TideHue.ShoreHue"
             Publisher="CN=FAFCE538-611A-4FA6-9046-8E37F31B8034"
-            Version="1.0.2.0"
+            Version="1.1.1.0"
             ProcessorArchitecture="x64"/>
 
   <Properties>

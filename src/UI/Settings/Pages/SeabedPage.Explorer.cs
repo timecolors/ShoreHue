@@ -8,6 +8,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using ShoreHue.Core.Infrastructure.Logging;
+using ShoreHue.Core.Services.Configuration;   // SettingsHostExtensions.Host()（宿主面取用）
+using ShoreHue.UI.Seabed;                     // FlatNode / SeabedTreeScanner（树模型与扫描器）
+using static ShoreHue.UI.Seabed.SeabedTreeScanner;   // 让 ReadManifestField / FsKindOf 的调用点零改动
 
 namespace ShoreHue.UI.Settings.Pages
 {
@@ -24,17 +28,28 @@ namespace ShoreHue.UI.Settings.Pages
         private static string ExplorerRoot => ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.RootDir;
 
         private bool _treeRefreshQueued;   // 防抖：watcher 连续事件合并为一次重建
+        private bool _openingFile;         // 防重入：打开文件 → SetProgMode → 模式切换回调 → 又回来
 
         /// <summary>widget 插件仓库变化（用户增删文件/目录）→ 树刷新（合并、回 UI 线程）。</summary>
         private void OnWidgetStoreChanged()
         {
-            if (!IsLoaded) return;
             if (_treeRefreshQueued) return;
             _treeRefreshQueued = true;
             Dispatcher.BeginInvoke(new Action(() =>
             {
+                // ★ 本回调可能来自 watcher 的**后台线程**：IsLoaded 是 UI 线程亲和成员，只能在 Dispatcher 里读
                 _treeRefreshQueued = false;
-                try { LoadExplorerTree(); } catch { }
+                if (!IsLoaded) return;
+                try { LoadExplorerTree(); }
+                catch (Exception ex)
+                {
+                    // 用户往 seabed 里放/删了文件，树却没刷新（界面上看不到变化）
+                    LogManager.Warning($"[海床] 文件夹变化后刷新树失败（界面不更新）：{ex.Message}");
+                }
+                // ★ 编辑器跟随磁盘：内容改动现在也会走到这里（watcher 已监听 LastWrite），
+                //   打开着的文件必须跟着变 —— 否则"在 Windows 文件夹里改"要和"在海床里改"等效就不成立。
+                SyncOpenEditorsWithDisk();
+                ShowLoadIssues();
             }), System.Windows.Threading.DispatcherPriority.Background);
         }
 
@@ -50,100 +65,12 @@ namespace ShoreHue.UI.Settings.Pages
         private void LoadExplorerTree()
         {
             ResetArm();
-            var nodes = new List<FlatNode>();
-            try
-            {
-                if (Directory.Exists(ExplorerRoot))
-                {
-                    foreach (var g in Directory.GetDirectories(ExplorerRoot)
-                                 .OrderBy(p => Path.GetFileName(p), StringComparer.CurrentCultureIgnoreCase))
-                    {
-                        nodes.Add(new FlatNode { Level = 0, DisplayOverride = Path.GetFileName(g), FsPath = g, FsIsDir = true });
-                        if (_expandedDirs.Contains(g)) ScanExplorerDir(g, nodes, 1);
-                    }
-                }
-            }
-            catch { }
-            _flatNodes = nodes;
+            EnsureInitialExpansion();   // 首次默认全展开：旧树一次列全三级，别让用户以为"分类有问题"
+            // ★ 扫描与筛选已抽到 SeabedTreeScanner（**无 UI 依赖、可单测**）：
+            //   页面只负责"拿结果绑列表"。抽出去的直接收益是"哪个目录算面板/算配置组"能被断言钉住，
+            //   而不是靠人盯着树看 —— 目录扁平化正需要这套测试台。
+            _flatNodes = SeabedTreeScanner.Scan(ExplorerRoot, _expandedDirs, _treeFilter);
             lstConfigTree.ItemsSource = _flatNodes;
-        }
-
-        /// <summary>展开目录时列出其子目录 + 文件（文件仅当该目录本身已展开才显示其自身文件）。</summary>
-        private void ScanExplorerDir(string dir, List<FlatNode> nodes, int level)
-        {
-            if (level > 3) return;
-            try
-            {
-                // 子目录行
-                foreach (var sub in Directory.GetDirectories(dir)
-                             .OrderBy(p => Path.GetFileName(p), StringComparer.CurrentCultureIgnoreCase))
-                {
-                    string kind = ReadManifestField(sub, "kind") ?? "";
-                    bool sys = string.Equals(ReadManifestField(sub, "system"), "True", StringComparison.OrdinalIgnoreCase)
-                               || ReadManifestField(sub, "system") == "true";
-                    nodes.Add(new FlatNode
-                    {
-                        Level = level,
-                        DisplayOverride = Path.GetFileName(sub),
-                        FsPath = sub,
-                        FsIsDir = true,
-                        FsIsSystem = sys,
-                        FsKind = kind,
-                        FsIsConfigDir = kind == "Config",
-                        FsManifestId = ReadManifestField(sub, "id"),
-                        HasDelete = true
-                    });
-                    if (_expandedDirs.Contains(sub) && level < 3) ScanExplorerDir(sub, nodes, level + 1);
-                }
-                // 本目录文件行（manifest.json 也展示，只读元信息）
-                foreach (var f in Directory.GetFiles(dir)
-                             .OrderBy(p => Path.GetFileName(p), StringComparer.CurrentCultureIgnoreCase))
-                {
-                    bool isManifest = string.Equals(Path.GetFileName(f), "manifest.json", StringComparison.OrdinalIgnoreCase);
-                    nodes.Add(new FlatNode
-                    {
-                        Level = level,
-                        DisplayOverride = Path.GetFileName(f),
-                        FsPath = f,
-                        FsIsDir = false,
-                        FsKind = FsKindOf(dir),
-                        HasDelete = !isManifest
-                    });
-                }
-            }
-            catch { }
-        }
-
-        /// <summary>目录的 manifest kind（无 manifest 时按父目录推断：小组件→Widget、面板功能→Panel、动画→Animation、状态栏→StatusProvider）。</summary>
-        private static string? FsKindOf(string dir)
-        {
-            string? k = ReadManifestField(dir, "kind");
-            if (!string.IsNullOrEmpty(k)) return k;
-            string group = Path.GetFileName(Path.GetDirectoryName(dir) ?? "") ?? "";
-            return group switch
-            {
-                "小组件" => "Widget",
-                "面板功能" => "Panel",
-                "动画" => "Animation",
-                "状态栏" => "StatusProvider",
-                _ => null
-            };
-        }
-
-        private static string? ReadManifestField(string dir, string name)
-        {
-            try
-            {
-                string mf = Path.Combine(dir, "manifest.json");
-                if (!File.Exists(mf)) return null;
-                using var doc = JsonDocument.Parse(File.ReadAllText(mf));
-                if (doc.RootElement.TryGetProperty(name, out var v))
-                    return v.ValueKind == JsonValueKind.String ? v.GetString()
-                        : v.ValueKind == JsonValueKind.True ? "true"
-                        : v.ValueKind == JsonValueKind.False ? "false" : v.GetRawText();
-            }
-            catch { }
-            return null;
         }
 
         /// <summary>目录切换展开/收起；文件则读入编辑器。</summary>
@@ -154,14 +81,29 @@ namespace ShoreHue.UI.Settings.Pages
             if (fn.FsIsDir)
             {
                 // 目录：切换展开 → 重建树（资源管理器语义：单击展开/收起）
-                if (!_expandedDirs.Remove(fn.FsPath)) _expandedDirs.Add(fn.FsPath);
+                if (!_expandedDirs.Remove(fn.FsPath ?? "")) _expandedDirs.Add(fn.FsPath ?? "");
                 LoadExplorerTree();
                 lstConfigTree.SelectedItem = null;
                 // ★ 编辑区目录状态：提示该目录能力（保留已打开文件不打断编辑）
                 txtNodeTitle.Text = Path.GetFileName(fn.FsPath);
+                // ★ 目录可能在"树扫描"与"用户点击"之间被删掉（watcher 刷新是防抖的）——
+                //   以前这里裸调 Directory.GetFiles，目录不存在会抛 DirectoryNotFoundException
+                //   一路冒到全局未处理异常弹窗。
+                bool hasCode = false;
+                try
+                {
+                    hasCode = Directory.Exists(fn.FsPath) &&
+                              Directory.GetFiles(fn.FsPath).Any(f =>
+                                  f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+                                  f.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase));
+                }
+                catch (Exception ex)
+                {
+                    LogManager.Debug($"[海床] 读取目录内容失败（按空目录提示）：{ex.Message}");
+                }
                 txtNodeHint.Text = fn.FsIsConfigDir
                     ? "配置目录：点开 config.json 编辑，或用「应用」写回设置"
-                    : (Directory.GetFiles(fn.FsPath).Any(f => f.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase))
+                    : (hasCode
                         ? "功能目录：点文件编辑；右键可新建文件夹/重命名/删除"
                         : "（空）右键新建文件夹，或放入代码文件即成为功能");
                 txtJsonStatus.Text = "";
@@ -182,70 +124,18 @@ namespace ShoreHue.UI.Settings.Pages
         /// <summary>右键所在目录：目录行=自身；文件行=所在目录。</summary>
         private static string? CtxDirOf(FlatNode fn) => fn.FsIsDir ? fn.FsPath : Path.GetDirectoryName(fn.FsPath);
 
-        /// <summary>右键 → 新建文件夹（命名）。</summary>
+        /// <summary>右键 → 新建文件夹（实现见 SeabedPage.Manage.cs，与 Ctrl+Shift+N 共用）。</summary>
         private void Fs_NewFolder_Click(object sender, System.Windows.RoutedEventArgs e)
         {
             var fn = CtxNode(sender);
-            string? parent = fn != null ? CtxDirOf(fn) : null;
-            if (string.IsNullOrEmpty(parent) || !Directory.Exists(parent)) { txtJsonStatus.Text = "请右键一个目录以在其中新建文件夹"; return; }
-            var dlg = new InputDialog("海床 · 新建文件夹", "在「" + Path.GetFileName(parent) + "」下新建文件夹，输入名称：", "新功能");
-            dlg.Owner = System.Windows.Window.GetWindow(this);
-            if (dlg.ShowDialog() != true) return;
-            string name = dlg.ResultText.Trim();
-            if (string.IsNullOrEmpty(name)) { txtJsonStatus.Text = "名称不能为空"; return; }
-            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) { txtJsonStatus.Text = "名称含非法字符"; return; }
-            string target = Path.Combine(parent, name);
-            if (Directory.Exists(target) || File.Exists(target)) { txtJsonStatus.Text = "同名已存在：" + name; return; }
-            try
-            {
-                Directory.CreateDirectory(target);
-                _expandedDirs.Add(parent);   // 展开父目录让新文件夹可见
-                LoadExplorerTree();
-                txtJsonStatus.Text = "已新建文件夹：" + name + "（放入代码文件即成为功能）";
-            }
-            catch (Exception ex) { txtJsonStatus.Text = "新建失败：" + ex.Message; }
+            NewFolderIn(fn != null ? CtxDirOf(fn) : null);
         }
 
         /// <summary>右键 → 重命名（文件/文件夹）。</summary>
         private void Fs_Rename_Click(object sender, System.Windows.RoutedEventArgs e)
         {
             var fn = CtxNode(sender);
-            if (fn?.FsPath == null) return;
-            string src = fn.FsPath;
-            string oldName = Path.GetFileName(src);
-            string parent = Path.GetDirectoryName(src)!;
-            var dlg = new InputDialog("海床 · 重命名", "输入新名称：", oldName);
-            dlg.Owner = System.Windows.Window.GetWindow(this);
-            if (dlg.ShowDialog() != true) return;
-            string name = dlg.ResultText.Trim();
-            if (string.IsNullOrEmpty(name) || name == oldName) return;
-            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) { txtJsonStatus.Text = "名称含非法字符"; return; }
-            string target = Path.Combine(parent, name);
-            if (Directory.Exists(target) || File.Exists(target)) { txtJsonStatus.Text = "同名已存在：" + name; return; }
-            try
-            {
-                if (fn.FsIsDir) Directory.Move(src, target); else File.Move(src, target);
-                // 目录重命名 → 同步 manifest.name（id 保持稳定）；文件级重命名不动 manifest
-                if (fn.FsIsDir)
-                {
-                    string mf = Path.Combine(target, "manifest.json");
-                    if (File.Exists(mf))
-                    {
-                        try
-                        {
-                            string json = File.ReadAllText(mf);
-                            var m = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, object?>>(json);
-                            if (m != null) { m["name"] = name; File.WriteAllText(mf, System.Text.Json.JsonSerializer.Serialize(m, new System.Text.Json.JsonSerializerOptions { WriteIndented = true })); }
-                        }
-                        catch { }
-                    }
-                }
-                if (_fsPath == src) { _fsPath = null; txtNodeTitle.Text = ""; }
-                _expandedDirs.Add(parent);
-                LoadExplorerTree();
-                txtJsonStatus.Text = "已重命名：" + oldName + " → " + name;
-            }
-            catch (Exception ex) { txtJsonStatus.Text = "重命名失败：" + ex.Message; }
+            if (fn != null) RenameFsNode(fn);
         }
 
         /// <summary>右键 → 删除（文件/目录，走回收站，与行末 ✕ 一致）。</summary>
@@ -268,9 +158,118 @@ namespace ShoreHue.UI.Settings.Pages
             catch (Exception ex) { txtJsonStatus.Text = "打开失败：" + ex.Message; }
         }
 
+        /// <summary>把"某个小组件/面板没加载成功"的原因显示到状态行。
+        /// ★ 这些以前只写日志：编译失败或被沙箱拦的组件在界面上直接消失，用户不知道发生了什么。</summary>
+        private void ShowLoadIssues()
+        {
+            try
+            {
+                string issues = ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.DescribeLoadIssues();
+                if (issues.Length > 0) txtJsonStatus.Text = issues;
+            }
+            catch (Exception ex)
+            {
+                // 显示失败不影响别的功能，但不能静默
+                LogManager.Warning($"[海床] 显示加载问题失败：{ex.Message}");
+            }
+        }
+
+        /// <summary>打开着的编辑器内容跟随磁盘（VS Code 语义）：
+        ///   · 没有未保存改动 → 直接重载成磁盘版本（这就是"在 Windows 文件夹里改 = 在海床里改"）；
+        ///   · 有未保存改动、磁盘也变了 → 只在状态栏提示冲突，不弹模态框（每次文件事件都弹框会打断人），
+        ///     真正覆盖前仍由「保存文件」再确认一次。
+        /// 由 WidgetPluginStore.Changed 驱动（watcher 现在监听内容写入）。</summary>
+        private void SyncOpenEditorsWithDisk()
+        {
+            if (_fsPath == null || _fsIsDir) return;
+            try
+            {
+                var files = new List<string>();
+                if (_fsXamlPath != null) files.Add(_fsXamlPath);
+                if (_fsXamlCsPath != null) files.Add(_fsXamlCsPath);
+                if (files.Count == 0) files.Add(_fsPath);
+
+                bool reloaded = false, conflict = false;
+                foreach (var path in files)
+                {
+                    if (!_fsSnapshot.TryGetValue(path, out var snap)) continue;
+                    if (!File.Exists(path)) { conflict = true; continue; }   // 文件被外部删掉
+                    string disk = File.ReadAllText(path);
+                    if (disk == snap) continue;                              // 磁盘没变
+
+                    string editor = EditorTextOf(path) ?? "";
+                    if (editor == snap)
+                    {
+                        SetEditorText(path, disk);                           // 无未保存改动 → 跟随磁盘
+                        _fsSnapshot[path] = disk;
+                        reloaded = true;
+                    }
+                    else
+                    {
+                        // ★ 刻意**不**把快照推进到磁盘版本：快照的语义是"编辑器里这份内容是基于哪一版磁盘的"。
+                        //   以前这里推进了快照，导致保存时的冲突判定 `disk != snap` 恒为假 ——
+                        //   下面那句"已在磁盘上被修改，是否仍要覆盖？"的确认框**永远弹不出来**，
+                        //   外部改动被静默覆盖。保持快照不变，冲突状态就会一直可见、保存前必然确认一次。
+                        conflict = true;
+                    }
+                }
+                if (reloaded)
+                    txtJsonStatus.Text = "已从磁盘重新加载：" + string.Join("、", files.Select(Path.GetFileName));
+                else if (conflict)
+                    txtJsonStatus.Text = "⚠ 磁盘上的内容已变化（你还有未保存的改动），保存会覆盖磁盘版本";
+            }
+            catch (Exception ex)
+            {
+                // 同步失败不能静默：编辑器里显示的可能是旧内容
+                LogManager.Warning($"[海床] 外部改动同步失败（编辑器可能仍是旧内容）：{ex.Message}");
+            }
+        }
+
+        /// <summary>路径 → 对应编辑器当前文本（不在编辑器里的路径返回 null）。</summary>
+        private string? EditorTextOf(string path)
+        {
+            if (path.Equals(_fsXamlPath, StringComparison.OrdinalIgnoreCase)) return txtXamlEditor.Text;
+            if (path.Equals(_fsXamlCsPath, StringComparison.OrdinalIgnoreCase)) return txtXamlCsEditor.Text;
+            if (path.Equals(_fsPath, StringComparison.OrdinalIgnoreCase)) return txtJsonEditor.Text;
+            return null;
+        }
+
+        private void SetEditorText(string path, string text)
+        {
+            if (path.Equals(_fsXamlPath, StringComparison.OrdinalIgnoreCase)) { txtXamlEditor.Text = text; return; }
+            if (path.Equals(_fsXamlCsPath, StringComparison.OrdinalIgnoreCase)) { txtXamlCsEditor.Text = text; return; }
+            if (path.Equals(_fsPath, StringComparison.OrdinalIgnoreCase)) txtJsonEditor.Text = text;
+        }
+
+        /// <summary>
+        /// 完全编程有一条"看代码猜不到"的硬规则：文件名的名字部分必须**与所在目录名一致**
+        /// （加载器按 &lt;目录名&gt;.xaml 找界面）。用户把文件改名、或从别处拖进来时最容易踩，
+        /// 所以在编辑区提示里直接点出来，而不是让他去翻文档。
+        /// </summary>
+        private static string NamingHint(string path)
+        {
+            try
+            {
+                string? dir = Path.GetDirectoryName(path);
+                string dirName = string.IsNullOrEmpty(dir) ? "" : Path.GetFileName(dir);
+                string stem = ShoreHue.UI.Seabed.XamlFilePair.Stem(path);
+                if (string.IsNullOrEmpty(dirName)
+                    || string.Equals(stem, dirName, StringComparison.OrdinalIgnoreCase)) return "";
+                return "　⚠ 文件名与目录名不一致（加载器要求 " + dirName + ".xaml），当前不会作为该功能的界面生效";
+            }
+            catch (Exception ex)
+            {
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Debug("[海床] 命名一致性提示失败：" + ex.Message);
+                return "";
+            }
+        }
         /// <summary>按扩展名把文件读入对应编辑器（完全编程双框 / 简单单框 / config.json JSON）。</summary>
         private void OpenExplorerFile(string path)
         {
+            // ★ 防重入：本方法内部会 SetProgMode → 触发 CmbProgMode_SelectionChanged → 又回到本方法。
+            //   守卫放在这里而不是靠调用方小心，免得以后多几条路径就漏。
+            if (_openingFile) return;
+            _openingFile = true;
             try
             {
                 string name = Path.GetFileName(path);
@@ -281,38 +280,30 @@ namespace ShoreHue.UI.Settings.Pages
                 _fsXamlCsPath = null;
                 _fsSnapshot.Clear();
 
-                if (name.EndsWith(".xaml", StringComparison.OrdinalIgnoreCase) && !name.EndsWith(".xaml.cs", StringComparison.OrdinalIgnoreCase))
-                {
-                    // 完全编程：.xaml + 兄弟 .xaml.cs
-                    SetProgMode(1);
-                    string dir = Path.GetDirectoryName(path)!;
-                    string xamlPath = path;
-                    string csPath = Path.Combine(dir, Path.GetFileNameWithoutExtension(path) + ".xaml.cs");
-                    string xaml = File.ReadAllText(xamlPath);
-                    string cs = File.Exists(csPath) ? File.ReadAllText(csPath) : "";
-                    txtXamlEditor.Text = xaml;
-                    txtXamlCsEditor.Text = cs;
-                    _fsXamlPath = xamlPath;
-                    _fsXamlCsPath = File.Exists(csPath) ? csPath : null;
-                    _fsSnapshot[xamlPath] = xaml;
-                    if (_fsXamlCsPath != null) _fsSnapshot[_fsXamlCsPath] = cs;
-                    txtNodeHint.Text = "完全编程（XAML + 代码后置），保存 = 写回目录中的真实文件";
-                }
-                else if (name.EndsWith(".xaml.cs", StringComparison.OrdinalIgnoreCase))
+                // ★ 完全编程：`.xaml` 与 `.xaml.cs` 是**成对的同一件事** —— 点哪一半都该把两个框都填上。
+                //   判据与"由任一半推出另一半"抽在 XamlFilePair（纯函数）：以前这里是两支几乎相同的代码，
+                //   而 `.xaml.cs` 那支用 GetFileNameWithoutExtension 拼出 `calculator.xaml.xaml`，
+                //   导致点 .xaml.cs 时 XAML 框永远是空的（真机反馈）。
+                if (ShoreHue.UI.Seabed.XamlFilePair.IsView(name) || ShoreHue.UI.Seabed.XamlFilePair.IsCodeBehind(name))
                 {
                     SetProgMode(1);
-                    string dir = Path.GetDirectoryName(path)!;
-                    string csPath = path;
-                    string xamlPath = Path.Combine(dir, Path.GetFileNameWithoutExtension(path) + ".xaml");
-                    string cs = File.ReadAllText(csPath);
-                    string xaml = File.Exists(xamlPath) ? File.ReadAllText(xamlPath) : "";
+                    var (xamlPath, csPath) = ShoreHue.UI.Seabed.XamlFilePair.Resolve(path);
+                    string xaml = xamlPath != null && File.Exists(xamlPath) ? File.ReadAllText(xamlPath) : "";
+                    string cs = csPath != null && File.Exists(csPath) ? File.ReadAllText(csPath) : "";
                     txtXamlEditor.Text = xaml;
                     txtXamlCsEditor.Text = cs;
-                    _fsXamlPath = File.Exists(xamlPath) ? xamlPath : null;
-                    _fsXamlCsPath = csPath;
-                    _fsSnapshot[csPath] = cs;
+                    _fsXamlPath = xamlPath != null && File.Exists(xamlPath) ? xamlPath : null;
+                    _fsXamlCsPath = csPath != null && File.Exists(csPath) ? csPath : null;
                     if (_fsXamlPath != null) _fsSnapshot[_fsXamlPath] = xaml;
-                    txtNodeHint.Text = "完全编程（代码后置 + XAML），保存 = 写回目录中的真实文件";
+                    if (_fsXamlCsPath != null) _fsSnapshot[_fsXamlCsPath] = cs;
+                    // 两个框都填好之后，**把显示切到用户点的那一半** —— 点 .xaml.cs 却停在 .xaml 页
+                    // 会让人以为"点错了/没加载"（两个框其实都有内容）。
+                    if (xamlTab != null)
+                        xamlTab.SelectedIndex = ShoreHue.UI.Seabed.XamlFilePair.IsCodeBehind(name) ? 1 : 0;
+                    txtNodeHint.Text = "完全编程（XAML + 代码后置），保存 = 写回目录中的真实文件" + NamingHint(path);
+                    // ★ 显式刷一次预览：万一编辑器里那份内容与上次**完全相同**，TextChanged 不会触发，
+                    //   预览会停在上一状态（例如被别的路径清空过就一直是空的）—— 真机反馈过这一条。
+                    UpdateXamlPreview();
                 }
                 else
                 {
@@ -321,9 +312,20 @@ namespace ShoreHue.UI.Settings.Pages
                     string content = File.ReadAllText(path);
                     txtJsonEditor.Text = content;
                     _fsSnapshot[path] = content;
+                    // ★ 说清"为什么这个面板连 .xaml 都没有"：两种编程形态按**文件存在与否**判定，
+                    //   简单编程（main.cs）的界面完全由 C# 构建 → 没有 .xaml、也就没有 XAML 预览。
+                    //   以前只写"简单编程"，用户看到别处有预览、这里没有，会以为坏了。
+                    //   ★ 判断依据必须是"**目录名**.xaml"（成对规则按目录名，不是按这个 .cs 的文件名），
+                    //     否则 `calculator/main.cs` 会被当成有配对（其实要找的是 calculator.xaml）。
+                    string? dirPath = Path.GetDirectoryName(path);
+                    string dirName = string.IsNullOrEmpty(dirPath) ? "" : Path.GetFileName(dirPath);
+                    bool dirIsXamlForm = !string.IsNullOrEmpty(dirName)
+                        && File.Exists(Path.Combine(dirPath!, dirName + ShoreHue.UI.Seabed.XamlFilePair.ViewExt));
                     txtNodeHint.Text = name.EndsWith(".json", StringComparison.OrdinalIgnoreCase)
                         ? (name == "manifest.json" ? "元信息（只读展示）" : "配置 JSON，保存 = 写回该文件")
-                        : "C# 源码（简单编程），保存 = 写回该文件";
+                        : dirIsXamlForm
+                            ? "C# 源码（本目录是完全编程形态，界面在同目录 " + dirName + ".xaml）"
+                            : "简单编程：界面由本文件里的 C# 代码直接构建，没有 .xaml，所以没有 XAML 预览（想换成完全编程：在本目录新建 " + dirName + ".xaml）";
                 }
                 txtJsonStatus.Text = "";
                 txtJsonEditor.Visibility = System.Windows.Visibility.Visible;
@@ -333,6 +335,10 @@ namespace ShoreHue.UI.Settings.Pages
             catch (Exception ex)
             {
                 txtJsonStatus.Text = "打开失败：" + ex.Message;
+            }
+            finally
+            {
+                _openingFile = false;
             }
         }
 
@@ -361,19 +367,38 @@ namespace ShoreHue.UI.Settings.Pages
                     targets.Add((_fsPath, txtJsonEditor.Text ?? ""));
                 }
 
-                // ★ 外部改动检测：磁盘内容与打开快照不同、且不等于当前编辑内容 → 提示覆盖（VS Code 语义）
+                // ★ 情况一（VS Code：干净缓冲区跟随磁盘）：我**没编辑过**，但磁盘被外部改了 → 不写盘，重新载入。
+                //   为什么保存时还要判：watcher 事件可能漏（同秒覆盖、外部程序、刚启动未订阅），
+                //   漏掉时下面的"要不要覆盖"会因为"我没改过"而放行，把旧内容写回去、外部改动静默消失。
+                var reloaded = new List<string>();
                 foreach (var t in targets)
                 {
-                    if (_fsSnapshot.TryGetValue(t.Path, out var snap) && snap != t.Content)
+                    if (!_fsSnapshot.TryGetValue(t.Path, out var s)) continue;
+                    string diskNow = File.ReadAllText(t.Path);
+                    if (!SeabedFs.ShouldReloadFromDisk(s, t.Content, diskNow)) continue;
+                    SetEditorText(t.Path, diskNow);
+                    _fsSnapshot[t.Path] = diskNow;
+                    reloaded.Add(Path.GetFileName(t.Path));
+                }
+                if (reloaded.Count > 0)
+                {
+                    txtJsonStatus.Text = "磁盘上已有新版本，已重新载入（未写入）：" + string.Join("、", reloaded);
+                    return;
+                }
+
+                // ★ 情况二（VS Code：dirty write prevention）：磁盘内容既不是我打开时的快照、也不是我要写的内容
+                //   → 说明外部改过且我有自己的改动，覆盖会丢东西，先问一句。判据抽在 SeabedFs（纯函数、可单测）。
+                foreach (var t in targets)
+                {
+                    if (_fsSnapshot.TryGetValue(t.Path, out var snap)
+                        && SeabedFs.ShouldWarnBeforeOverwrite(snap, File.ReadAllText(t.Path), t.Content))
                     {
-                        string disk = File.ReadAllText(t.Path);
-                        if (disk != snap && disk != t.Content)
-                        {
-                            var r = System.Windows.MessageBox.Show(
-                                Path.GetFileName(t.Path) + " 已在磁盘上被修改，是否仍要覆盖？",
-                                "海床", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
-                            if (r != System.Windows.MessageBoxResult.Yes) { txtJsonStatus.Text = "已取消保存（保留磁盘版本）"; return; }
-                        }
+                        var r = System.Windows.MessageBox.Show(
+                            Path.GetFileName(t.Path) + " 在磁盘上已被外部修改（磁盘版本较新）。\n\n"
+                            + "是 = 用编辑器里的内容覆盖磁盘\n"
+                            + "否 = 取消保存，保留磁盘上的新版本",
+                            "海床", System.Windows.MessageBoxButton.YesNo, System.Windows.MessageBoxImage.Question);
+                        if (r != System.Windows.MessageBoxResult.Yes) { txtJsonStatus.Text = "已取消保存（保留磁盘上的新版本）"; return; }
                     }
                 }
 
@@ -382,6 +407,10 @@ namespace ShoreHue.UI.Settings.Pages
                     WriteFileWithRetry(t.Path, t.Content);
                     _fsSnapshot[t.Path] = t.Content;
                 }
+                // ★ 保存即生效：写盘时 watcher 是挂起的（防自触发），所以这里主动刷新插件仓库并通知。
+                //   否则"在海床里改了内置件/插件源码"要等下一次无关事件或重启才生效（与"文件夹即真相源"不符）。
+                ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.Reload();
+                ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.NotifyChanged();
                 txtJsonStatus.Text = "已保存：" + string.Join("、", targets.Select(t => Path.GetFileName(t.Path)));
             }
             catch (Exception ex)
@@ -427,7 +456,7 @@ namespace ShoreHue.UI.Settings.Pages
             }
             if (btn != null) ArmDelete(btn, fn.FsPath);   // 行末 ✕：按钮进入「再点一次删除」
             else ArmPathNoButton(fn.FsPath);              // 右键删除：状态栏进入确认态
-            bool system = fn.FsIsSystem || IsUnderSystemDir(fn.FsPath);
+            bool system = fn.FsIsSystem || IsUnderSystemDir(fn.FsPath, ExplorerRoot);
             txtJsonStatus.Text = "已选择删除「" + Path.GetFileName(fn.FsPath) + "」，3 秒内再点一次确认（进入回收站）"
                 + (system ? "；注意：这是 ShoreHue 内置项" : "");
         }
@@ -447,66 +476,26 @@ namespace ShoreHue.UI.Settings.Pages
             _armDeleteTimer = t;
         }
 
-        /// <summary>执行删除：文件→删文件；目录→删整个目录。回收站优先，占用重试，失败仅状态提示（无弹窗）。</summary>
+        /// <summary>执行删除：文件操作交给 <see cref="SeabedFs"/>（含"不能删根目录"的硬约束），这里只管界面善后。</summary>
         private void ExplorerDeleteCore(FlatNode fn)
         {
             if (fn.FsPath == null) return;
-            // 根目录保护
-            if (string.Equals(fn.FsPath, ExplorerRoot, StringComparison.OrdinalIgnoreCase)) { txtJsonStatus.Text = "不能删除海床根目录"; return; }
-            string disp = Path.GetFileName(fn.FsPath);
 
-            try
-            {
-                DeleteToRecycle(fn.FsPath, fn.FsIsDir);
-                // 同步派生索引：若该目录 manifest.id 是海床自定义项（custom_*），从 CustomPanels 移除
-                string? mid = fn.FsIsDir ? ReadManifestField(fn.FsPath, "id") : null;
-                if (!string.IsNullOrEmpty(mid) && mid.StartsWith("custom_", StringComparison.Ordinal))
-                {
-                    var list = _settings.CustomPanels;
-                    list.RemoveAll(p => p.Id == mid);
-                    _settings.CustomPanels = list;
-                }
-                _expandedDirs.Remove(fn.FsPath);
-                if (_fsPath == fn.FsPath) { _fsPath = null; txtJsonEditor.Text = ""; txtXamlEditor.Text = ""; txtXamlCsEditor.Text = ""; txtNodeTitle.Text = ""; }
-                LoadExplorerTree();
-                txtJsonStatus.Text = "已删除（回收站）：" + disp;
-            }
-            catch (Exception ex)
-            {
-                txtJsonStatus.Text = "删除失败：" + ex.Message + "（若文件被其他程序占用，请关闭后重试）";
-            }
-        }
+            var result = SeabedFs.DeleteToRecycleBin(fn.FsPath, fn.FsIsDir, ExplorerRoot);
+            if (!result.Ok) { txtJsonStatus.Text = result.Message; return; }
 
-        private static bool IsUnderSystemDir(string path)
-        {
-            string dir = path;
-            for (int i = 0; i < 4 && !string.IsNullOrEmpty(dir) && dir.Length > ExplorerRoot.Length; i++)
+            // 同步派生索引：若该目录 manifest.id 是海床自定义项（custom_*），从 CustomPanels 移除
+            string? mid = fn.FsIsDir ? ReadManifestField(fn.FsPath, "id") : null;
+            if (!string.IsNullOrEmpty(mid) && mid.StartsWith("custom_", StringComparison.Ordinal))
             {
-                if (string.Equals(ReadManifestField(dir, "system"), "true", StringComparison.OrdinalIgnoreCase)) return true;
-                dir = Path.GetDirectoryName(dir) ?? "";
+                var list = _settings.CustomPanels;
+                list.RemoveAll(p => p.Id == mid);
+                _settings.Host().SetCustomPanels(list);
             }
-            return false;
-        }
-
-        /// <summary>删除到回收站（Microsoft.VisualBasic.FileIO，Windows 桌面运行时自带）；异常回退永久删除。</summary>
-        private void DeleteToRecycle(string path, bool isDir)
-        {
-            try
-            {
-                if (isDir)
-                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteDirectory(path,
-                        Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
-                        Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
-                else
-                    Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(path,
-                        Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
-                        Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
-            }
-            catch (Exception)
-            {
-                // 回退：永久删除（占用/权限错误仍会抛出，由调用方提示）
-                if (isDir) Directory.Delete(path, true); else File.Delete(path);
-            }
+            _expandedDirs.Remove(fn.FsPath);
+            if (_fsPath == fn.FsPath) { _fsPath = null; txtJsonEditor.Text = ""; txtXamlEditor.Text = ""; txtXamlCsEditor.Text = ""; txtNodeTitle.Text = ""; }
+            LoadExplorerTree();
+            txtJsonStatus.Text = result.Message;
         }
 
         // ==================== 编译（作用于当前编辑内容） ====================
@@ -593,7 +582,7 @@ namespace ShoreHue.UI.Settings.Pages
                         overrides[n.Key] = presetName;
                 }
                 data.AppliedPresets = overrides;
-                _settings.Apply(data);
+                _settings.Host().Apply(data);
                 LoadTree();
                 txtJsonStatus.Text = "已应用配置目录「" + presetName + "」（冲突项已置灰，可在设置页两击解除）";
             }
@@ -621,7 +610,11 @@ namespace ShoreHue.UI.Settings.Pages
                 else val = null;
                 p.SetValue(data, val);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 应用预设时某个字段没设上 → 用户以为生效了其实没有
+                LogManager.Warning($"[海床] 写入配置字段失败（该字段未生效）{name}：{ex.Message}");
+            }
         }
 
         // ==================== 变体：当前目录另存为副本 ====================

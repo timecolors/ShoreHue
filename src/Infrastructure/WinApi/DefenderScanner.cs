@@ -1,4 +1,5 @@
 using System;
+using ShoreHue.Core.Infrastructure.Logging;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -49,16 +50,34 @@ namespace ShoreHue.Infrastructure.WinApi
                 }
                 catch (OperationCanceledException)
                 {
-                    try { proc.Kill(); } catch { }
+                    // 尽力而为：超时后杀掉扫描进程；杀不掉也不影响返回值（已经按"不可用"处理并会在界面提示）
+                    try { proc.Kill(); }
+                    catch (Exception kex) { LogManager.Debug($"[Defender] 结束超时的扫描进程失败（无害）：{kex.Message}"); }
                     return (ScanResult.Unavailable, "Defender 扫描超时");
                 }
                 string output = await outTask + Environment.NewLine + await errTask;
 
-                var m = Regex.Match(output, @"Threats\s+Found:\s*(\d+)", RegexOptions.IgnoreCase);
-                int threats = m.Success ? int.Parse(m.Groups[1].Value) : 0;
-                if (threats > 0)
+                // ★ 判定依据**不能**是本地化输出文本。
+                //   MpCmdRun 在中文 Windows 上打印的是中文（"发现威胁:"之类），
+                //   旧实现正则匹配英文 "Threats Found:"，匹配不到就当 0 → **把带毒包报成"未发现已知威胁"**
+                //   （本应用的主要语言恰好是中文，这条路径在最常见的环境下就是坏的）。
+                //   退出码才是稳定契约：0 = 未发现威胁，2 = 发现威胁。
+                int exitCode = proc.ExitCode;
+                if (exitCode == 2)
                 {
-                    return (ScanResult.ThreatFound, "Windows Defender 检出 " + threats + " 个威胁");
+                    // 尽量从输出里再捞一个数字用于提示；捞不到也给通用文案
+                    var m2 = Regex.Match(output, @"(\d+)\s*(?:threats?|个威胁|威胁)", RegexOptions.IgnoreCase);
+                    string detail = m2.Success
+                        ? "Windows Defender 检出 " + m2.Groups[1].Value + " 个威胁"
+                        : "Windows Defender 检出威胁（退出码 2）";
+                    return (ScanResult.ThreatFound, detail);
+                }
+                if (exitCode != 0)
+                {
+                    // 其它非零退出码（参数错误/引擎不可用…）：**不能**当作"干净"，
+                    // 否则一次扫描失败就会让用户以为已经查过了。
+                    return (ScanResult.Unavailable,
+                        $"Defender 扫描未正常完成（退出码 {exitCode}），本次未获得有效结论");
                 }
                 return (ScanResult.Clean, "Windows Defender 未发现已知威胁");
             }
@@ -77,7 +96,7 @@ namespace ShoreHue.Infrastructure.WinApi
                     Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
                     "Windows Defender", "MpCmdRun.exe"));
             }
-            catch { }
+            catch (Exception ex) { LogManager.Debug($"[Defender] 候选路径不可用（跳过）：{ex.Message}"); }
             try
             {
                 string pd = Path.Combine(
@@ -91,7 +110,7 @@ namespace ShoreHue.Infrastructure.WinApi
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { LogManager.Debug($"[Defender] 枚举候选目录失败（跳过）：{ex.Message}"); }
             return candidates.FirstOrDefault(File.Exists);
         }
     }

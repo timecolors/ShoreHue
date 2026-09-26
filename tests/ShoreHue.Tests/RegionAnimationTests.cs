@@ -7,13 +7,14 @@ using Xunit;
 namespace ShoreHue.Tests;
 
 /// <summary>逐区域动画覆盖：解析优先区域、缺省跟随全局；清除恢复继承（隔离临时目录，不碰真实配置）。</summary>
+[Collection("WidgetStore")]   // ★ 会改 AppPaths.TestDataRoot，必须串行（见 WidgetStoreCollection 注释）
 public class RegionAnimationTests : IDisposable
 {
     private readonly string _dir;
 
     public RegionAnimationTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "dbp_anim_" + Guid.NewGuid().ToString("N"));
+        _dir = Path.Combine(Path.GetTempPath(), "sh_anim_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
         AppPaths.TestDataRoot = _dir;
     }

@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using ShoreHue.Core.Infrastructure.Logging;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using System.Management;
@@ -59,11 +60,20 @@ namespace ShoreHue.Infrastructure.WinApi
                         new object[] { uint.MaxValue, target });
                     return;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 设计如此：WMI 不行就继续往下走 DDC/CI（下一条路），所以这里只是"换条路"
+                    LogManager.Debug($"[系统控制] WMI 调亮度失败（改用 DDC/CI）：{ex.Message}");
+                }
             }
 
             if (_monitor == IntPtr.Zero) return;
-            try { SetMonitorBrightness(_monitor, (uint)Math.Max(0, value)); } catch { }
+            try { SetMonitorBrightness(_monitor, (uint)Math.Max(0, value)); }
+            catch (Exception ex)
+            {
+                // 两条路都失败 = 亮度没变（用户会看到滑块动了但屏幕没反应）
+                LogManager.Warning($"[系统控制] DDC/CI 调亮度也失败（屏幕亮度未改变）：{ex.Message}");
+            }
         }
 
         // ================= WMI（笔记本内屏） =================
@@ -114,7 +124,11 @@ namespace ShoreHue.Infrastructure.WinApi
                     return _wmiAvailable;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 探测失败 = 按"这台机器不支持 WMI 调亮度"处理（下面回落到 DDC/CI）
+                LogManager.Debug($"[系统控制] 探测 WMI 亮度支持失败（按不支持处理）：{ex.Message}");
+            }
 
             _wmiAvailable = false;
             return false;
@@ -145,7 +159,11 @@ namespace ShoreHue.Infrastructure.WinApi
                 max = (int)mx;
                 return max > min;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                LogManager.Debug($"[系统控制] 读取 WMI 亮度失败（按不支持处理）：{ex.Message}");
+                return false;
+            }
         }
 
         private static byte SnapToLevel(int value, byte[] levels)
@@ -177,7 +195,12 @@ namespace ShoreHue.Infrastructure.WinApi
                 var radios = await Radio.GetRadiosAsync().AsTask();
                 return radios.FirstOrDefault(r => r.Kind == kind);
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                // 尽力而为：拿不到无线电设备（无该硬件/权限）→ 开关显示为不可用
+                LogManager.Debug($"[系统控制] 获取无线电设备失败 kind={kind}：{ex.Message}");
+                return null;
+            }
         }
 
         public static async Task<RadioState?> GetStateAsync(RadioKind kind)
@@ -195,7 +218,12 @@ namespace ShoreHue.Infrastructure.WinApi
                 var status = await radio.SetStateAsync(on ? RadioState.On : RadioState.Off).AsTask();
                 return status == RadioAccessStatus.Allowed;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                // 用户点了开关但没生效（QuickSettings 会按 false 显示未切换）
+                LogManager.Warning($"[系统控制] 切换无线电失败 kind={kind} on={on}：{ex.Message}");
+                return false;
+            }
         }
     }
 
@@ -223,7 +251,11 @@ namespace ShoreHue.Infrastructure.WinApi
 
                 return (true, _manager.TetheringOperationalState == TetheringOperationalState.On);
             }
-            catch { return (false, false); }
+            catch (Exception ex)
+            {
+                LogManager.Debug($"[系统控制] 读取热点状态失败（按不可用处理）：{ex.Message}");
+                return (false, false);
+            }
         }
 
         public static async Task<bool> SetAsync(bool on)
@@ -236,7 +268,11 @@ namespace ShoreHue.Infrastructure.WinApi
                     : await _manager.StopTetheringAsync().AsTask();
                 return result.Status == TetheringOperationStatus.Success;
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[系统控制] 切换热点失败 on={on}：{ex.Message}");
+                return false;
+            }
         }
     }
 }

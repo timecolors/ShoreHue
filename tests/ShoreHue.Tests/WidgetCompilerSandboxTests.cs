@@ -45,7 +45,11 @@ public class WidgetCompilerSandboxTests
     [Fact]
     public void Registry_Blocked()
     {
-        Assert.Contains(WidgetCompiler.CheckSandbox("Registry.CurrentUser.OpenSubKey(\"Software\");"), b => b.Contains("注册表"));
+        // ★ 2026-09-10：裸 "registry" 文本规则已删（会把 registryPath 变量名/注释一起拦掉），
+        //   改由符号层按类型拦 —— 所以这条测试必须用**能编译**的源码走总闸门（SandboxErrors），
+        //   而不是拿一句编译不过的片段去测文本层。
+        const string src = "using Microsoft.Win32;\npublic class A { public object M() => Registry.CurrentUser; }";
+        Assert.Contains("Microsoft.Win32.Registry", WidgetCompiler.SandboxErrors(src));
     }
 
     [Fact]
@@ -65,8 +69,12 @@ public class WidgetCompilerSandboxTests
     [Fact]
     public void WindowHook_Blocked()
     {
-        var blocked = WidgetCompiler.CheckSandbox("SetWindowsHookEx(14, null, IntPtr.Zero, 0);");
-        Assert.Contains(blocked, b => b.Contains("输入钩子") || b.Contains("SetWindowsHookEx"));
+        // ★ 2026-09-10：11 条"窗口/输入函数名"裸子串规则已删（纯误报源），
+        //   P/Invoke 由符号层拦（同时修好了特性名绑定构造函数导致的 P/Invoke 漏检）。
+        const string src = "using System;\nusing System.Runtime.InteropServices;\n" +
+                           "public class A { [DllImport(\"user32.dll\")] static extern IntPtr SetWindowsHookEx(int id, IntPtr f, IntPtr m, uint t); " +
+                           "void M() { SetWindowsHookEx(14, IntPtr.Zero, IntPtr.Zero, 0); } }";
+        Assert.Contains("System.Runtime.InteropServices", WidgetCompiler.SandboxErrors(src));
     }
 
     [Fact]

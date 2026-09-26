@@ -30,7 +30,11 @@ namespace ShoreHue.UI.Panels
 
             try
             {
-                _audioDevice = new MMDeviceEnumerator().GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                // ★ 用完就释放枚举器：`MMDeviceEnumerator` 是 COM 对象，不 Dispose 就是每次
+                //   切到快捷设置面板泄漏一个（PanelContentController 每次切换都 new 一个本视图）。
+                //   默认端点的 MMDevice 仍然持有（下面会用到），由 Unloaded 统一释放。
+                using var enumerator = new MMDeviceEnumerator();
+                _audioDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
             }
             catch { _audioDevice = null; }
 
@@ -44,7 +48,13 @@ namespace ShoreHue.UI.Panels
                 await RefreshStatesAsync();
                 _stateTimer.Start();
             };
-            Unloaded += (_, _) => _stateTimer.Stop();
+            Unloaded += (_, _) =>
+            {
+                _stateTimer.Stop();
+                // ★ 释放音频端点 COM 对象（视图每次切换都会新建一个）
+                try { _audioDevice?.Dispose(); } catch { /* 释放失败无害：进程退出时系统回收 */ }
+                _audioDevice = null;
+            };
 
             Loaded += (_, _) => RefreshVolume();
         }
@@ -60,10 +70,11 @@ namespace ShoreHue.UI.Panels
                 _volumeChanging = true;
                 VolumeSlider.Value = vol;
                 VolumeText.Text = $"{vol * 100:F0}%";
-                BtnMute.Content = _audioDevice.AudioEndpointVolume.Mute ? "静" : "音";
+                BtnMute.Content = ShoreHue.UI.Localization.LocalizationManager.Instance[
+                    _audioDevice.AudioEndpointVolume.Mute ? "Quick_Muted" : "Quick_Volume"];
                 _volumeChanging = false;
             }
-            catch { }
+            catch { /* 尽力而为：读不到音量就保持上次显示（2 秒后 _stateTimer 会再读） */ }
         }
 
         private void Volume_Changed(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -74,7 +85,7 @@ namespace ShoreHue.UI.Panels
                 _audioDevice.AudioEndpointVolume.MasterVolumeLevelScalar = (float)VolumeSlider.Value;
                 VolumeText.Text = $"{VolumeSlider.Value * 100:F0}%";
             }
-            catch { }
+            catch { /* 尽力而为：设系统音量失败（设备被独占/拔出）→ 数字保持不变 */ }
         }
 
         private void Mute_Click(object sender, RoutedEventArgs e)
@@ -83,9 +94,10 @@ namespace ShoreHue.UI.Panels
             {
                 if (_audioDevice == null) return;
                 _audioDevice.AudioEndpointVolume.Mute = !_audioDevice.AudioEndpointVolume.Mute;
-                BtnMute.Content = _audioDevice.AudioEndpointVolume.Mute ? "静" : "音";
+                BtnMute.Content = ShoreHue.UI.Localization.LocalizationManager.Instance[
+                    _audioDevice.AudioEndpointVolume.Mute ? "Quick_Muted" : "Quick_Volume"];
             }
-            catch { }
+            catch { /* 尽力而为：静音切换失败（设备被独占/拔出）→ 图标保持原样 */ }
         }
 
         // ================= 亮度 =================

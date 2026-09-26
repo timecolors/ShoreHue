@@ -1,4 +1,5 @@
 using System;
+using ShoreHue.Core.Infrastructure.Logging;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -43,6 +44,7 @@ namespace ShoreHue.Infrastructure.WinApi
         private uint _messageThreadId;
         private volatile bool _running;
         private volatile bool _hasEvent;          // 有新鼠标事件待处理
+        private volatile bool _everReported;      // 是否至少收到过一次鼠标事件（见 HasEverReported）
         private int _lastX, _lastY;
         private readonly object _lock = new();
 
@@ -55,8 +57,14 @@ namespace ShoreHue.Infrastructure.WinApi
         /// <summary>读取并清除事件标志（tick 处理后调用）。</summary>
         public void ConsumeEvent() => _hasEvent = false;
 
-        /// <summary>最新鼠标位置（物理像素）。</summary>
+        /// <summary>最新鼠标位置（物理像素）。
+        /// ★ 只有收到过鼠标事件之后才有意义：在此之前 _lastX/_lastY 还是初始值 (0,0)，
+        ///   把它当坐标会得到"鼠标在屏幕左上角"这个假位置（启动后左上角面板自己弹出来就是这个原因）。</summary>
         public (int X, int Y) LastPosition => (_lastX, _lastY);
+
+        /// <summary>钩子是否至少派发过一次鼠标事件。false = LastPosition 不可信，必须另取真实光标位置。
+        /// 装完钩子到第一次鼠标移动之间可能隔很久（用户不动鼠标），这段时间不能拿 LastPosition 用。</summary>
+        public bool HasEverReported => _everReported;
 
         public MouseHookService()
         {
@@ -99,6 +107,7 @@ namespace ShoreHue.Infrastructure.WinApi
                     _lastX = data.pt.X;
                     _lastY = data.pt.Y;
                     _hasEvent = true;
+                    _everReported = true;
                 }
             }
             return CallNextHookEx(_hookId, nCode, wParam, lParam);
@@ -109,11 +118,15 @@ namespace ShoreHue.Infrastructure.WinApi
             _running = false;
             if (_hookId != IntPtr.Zero)
             {
-                try { UnhookWindowsHookEx(_hookId); } catch { }
+                // 尽力而为：卸载钩子失败不影响进程退出（钩子随进程结束自动失效）
+                try { UnhookWindowsHookEx(_hookId); }
+                catch (Exception ex) { LogManager.Debug($"[鼠标钩子] 卸载钩子失败（无害）：{ex.Message}"); }
                 _hookId = IntPtr.Zero;
             }
             // 唤醒消息循环线程（ManagedThreadId 可能非 Win32 线程 id，改用 GetCurrentThreadId 捕获）
-            try { PostThreadMessage(_messageThreadId, 0x0400, IntPtr.Zero, IntPtr.Zero); } catch { }
+            // 尽力而为：唤醒消息循环失败也没关系（消息线程是 IsBackground，不阻止进程退出）
+            try { PostThreadMessage(_messageThreadId, 0x0400, IntPtr.Zero, IntPtr.Zero); }
+            catch (Exception ex) { LogManager.Debug($"[鼠标钩子] 唤醒消息线程失败（无害）：{ex.Message}"); }
             _messageThread = null;
             _procRef = null;
             IsActive = false;

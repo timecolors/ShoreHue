@@ -24,7 +24,8 @@ namespace ShoreHue.Builtin
 
         public NotePanel()
         {
-            _noteService = ServiceManager.Instance.GetService<NoteManager>() as INoteService;
+            // ★ 安全 v2：外来来源只能用窄接口
+            _noteService = ShoreHue.UI.Widgets.HostCapabilities.Notes;
             BuildUi();
             if (_noteService != null)
             {
@@ -108,7 +109,7 @@ namespace ShoreHue.Builtin
         private static SolidColorBrush TabBrush(string color)
         {
             try { if (!string.IsNullOrEmpty(color)) return new SolidColorBrush((Color)ColorConverter.ConvertFromString(color)); } catch { }
-            return new SolidColorBrush(Color.FromRgb(255, 255, 153));
+            return new SolidColorBrush(Color.FromRgb(0, 0, 0));
         }
 
         private void Tab_Click(object sender, MouseButtonEventArgs e)
@@ -141,7 +142,7 @@ namespace ShoreHue.Builtin
         {
             try
             {
-                if (string.IsNullOrEmpty(hex)) return System.Drawing.Color.FromArgb(255, 255, 255, 153);
+                if (string.IsNullOrEmpty(hex)) return System.Drawing.Color.FromArgb(255, 0, 0, 0);
                 if (hex.StartsWith("#")) hex = hex.Substring(1);
                 if (hex.Length == 6)
                     return System.Drawing.Color.FromArgb(255,
@@ -150,7 +151,7 @@ namespace ShoreHue.Builtin
                         Convert.ToByte(hex.Substring(4, 2), 16));
             }
             catch { }
-            return System.Drawing.Color.FromArgb(255, 255, 255, 153);
+            return System.Drawing.Color.FromArgb(255, 0, 0, 0);
         }
     }
 }

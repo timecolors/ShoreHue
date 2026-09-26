@@ -120,7 +120,11 @@ namespace ShoreHue.UI.Settings
                 if (TxtSearch.Text.Trim() != query.Trim()) return; // 输入已变化，丢弃过期结果
                 ResultList.ItemsSource = cities;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 搜索失败 → 列表不更新（用户看到的是上一次的结果）
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[天气] 搜索城市失败（列表未更新）：{ex.Message}");
+            }
         }
 
         private void TxtSearch_TextChanged(object sender, TextChangedEventArgs e)
@@ -221,7 +225,11 @@ namespace ShoreHue.UI.Settings
                 // 同步回本地副本（供本窗口后续使用）
                 _settingsData.WeatherRecentCities = recent;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 最近城市没落盘（下次打开选择器时少了历史）
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[天气] 保存最近城市失败：{ex.Message}");
+            }
         }
     }
 }

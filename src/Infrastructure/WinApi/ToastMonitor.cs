@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Automation;
 using System.Windows.Threading;
+using ShoreHue.Core.Infrastructure.Logging;
 
 namespace ShoreHue.Infrastructure.WinApi
 {
@@ -55,18 +56,21 @@ namespace ShoreHue.Infrastructure.WinApi
         public static void Start()
         {
             if (_timer != null) return;
-            // ★ 屏幕弹窗嗅探从 400ms 降到 800ms：系统通知已由通知中心读取（5s 轮询）兜底，
-            //   嗅探仅作为自绘气泡（QQ 等）的补充，降低 UIA 遍历的 CPU 占用
+            // ★ 启动时**不扫描**：扫描只在通知坞真的可见时才需要（见 SetPanelVisible）。
+            //   以前这里直接 Start 两个定时器，而 SetPanelVisible(false) 只有在面板**显示过一次之后**
+            //   被隐藏时才会调到 —— 于是"开机后从没打开过通知坞"的用户，会一直用 800ms 的节奏
+            //   在 UI 线程上 EnumWindows 遍历所有顶层窗口 + 开 SQLite 读通知中心（实测单核 4~8% 常驻）。
             _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
             _timer.Tick += (_, _) => Scan();
-            _timer.Start();
 
-            // 通知中心数据库轮询（成本低，5 秒一次足够）
+            // 通知中心数据库轮询（成本在 I/O 上，跑在后台线程，见 PollCenter）
             _centerTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _centerTimer.Tick += (_, _) => PollCenter();
-            _centerTimer.Start();
-            PollCenter(); // 启动后立即拉一次历史
+            _scanning = false;
         }
+
+        /// <summary>扫描是否处于运行态（面板可见才为 true）。</summary>
+        private static bool _scanning;
 
         public static void Stop()
         {
@@ -74,6 +78,7 @@ namespace ShoreHue.Infrastructure.WinApi
             _timer = null;
             _centerTimer?.Stop();
             _centerTimer = null;
+            _scanning = false;
             _active.Clear();
             _lastSignature.Clear();
             _uiaCooldown.Clear();
@@ -81,7 +86,8 @@ namespace ShoreHue.Infrastructure.WinApi
         }
 
         /// <summary>
-        /// 面板隐藏时暂停扫描（省 CPU），显示时恢复并立即拉取一次通知中心的新通知。
+        /// 面板显示/隐藏时开关扫描。
+        /// ★ 只有通知坞可见时才需要扫窗口与读通知中心；隐藏时一律停表（省 CPU）。
         /// </summary>
         public static void SetPanelVisible(bool visible)
         {
@@ -89,15 +95,18 @@ namespace ShoreHue.Infrastructure.WinApi
 
             if (visible)
             {
-                if (!_timer.IsEnabled) _timer!.Start();
-                if (!_centerTimer!.IsEnabled)
+                if (!_scanning)
                 {
-                    _centerTimer.Start();
-                    PollCenter(); // 立即拉取暂停期间的新通知
+                    _scanning = true;
+                    _timer.Start();
+                    _centerTimer!.Start();
+                    PollCenter(); // 立即拉取暂停期间的新通知（后台线程）
                 }
             }
             else
             {
+                if (!_scanning) return;
+                _scanning = false;
                 _timer.Stop();
                 _centerTimer!.Stop();
             }
@@ -150,7 +159,11 @@ namespace ShoreHue.Infrastructure.WinApi
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 用户点了通知却没打开应用（可见的失败）
+                LogManager.Warning($"[通知坞] 打开通知来源应用失败：{ex.Message}");
+            }
 
             RemoveItem(item);
         }
@@ -190,31 +203,83 @@ namespace ShoreHue.Infrastructure.WinApi
 
         private static async System.Threading.Tasks.Task InstallUpdateAsync(UpdateService.UpdateInfo info)
         {
-            NotifyUpdateStatus(string.Format(ShoreHue.UI.Localization.LocalizationManager.Instance["Toast_Downloading"], info.Version));
-            string? pkg = await UpdateService.DownloadUpdateAsync(info);
-            if (pkg == null)
+            var loc = ShoreHue.UI.Localization.LocalizationManager.Instance;
+            try
             {
-                NotifyUpdateStatus(ShoreHue.UI.Localization.LocalizationManager.Instance["Toast_DownloadFailed"]);
-                return;
-            }
+                NotifyUpdateStatus(string.Format(loc["Toast_Downloading"], info.Version));
+                var (pkg, failure) = await UpdateService.DownloadUpdateAsync(info);
 
-            NotifyUpdateStatus(ShoreHue.UI.Localization.LocalizationManager.Instance["Toast_Extracting"]);
-            string? exe = await UpdateService.ExtractExeAsync(pkg);
-            if (exe == null)
-            {
-                NotifyUpdateStatus(ShoreHue.UI.Localization.LocalizationManager.Instance["Toast_ExtractFailed"]);
-                return;
-            }
+                // ★ 缺完整性校验值：**问用户**，而不是静默拒装。
+                //   安全上必须拦住"未校验就安装"（否则发布说明少写一行＝下载链路可被中间人替换），
+                //   但把判断权完全拿走也不对：用户可能自己看过发版说明、或急着修一个坏版本。
+                //   所以这里做成"默认拒绝 + 明确告知风险 + 允许手动继续"——两边的代价都由用户知情后承担。
+                //   注意：**校验值不匹配不允许绕过**（那意味着下载内容与发布者声明不符，很可能是篡改）。
+                if (failure == UpdateService.DownloadFailure.MissingHash)
+                {
+                    bool proceed;
+                    try
+                    {
+                        proceed = System.Windows.MessageBox.Show(
+                            loc["Update_NoHashAsk"],
+                            loc["Update_NoHashAskTitle"],
+                            System.Windows.MessageBoxButton.YesNo,
+                            System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes;
+                    }
+                    catch (Exception mex)
+                    {
+                        // 弹不出确认框（非 UI 线程/无窗口）→ 按"取消"处理（保守，不静默放行）
+                        LogManager.Warning($"[通知坞] 无法弹出安装确认框，已按取消处理：{mex.Message}");
+                        proceed = false;
+                    }
 
-            if (UpdateService.ApplyUpdate(exe))
-            {
-                NotifyUpdateStatus(ShoreHue.UI.Localization.LocalizationManager.Instance["Toast_Ready"]);
-                System.Windows.Application.Current?.Dispatcher.BeginInvoke(
-                    new Action(() => System.Windows.Application.Current?.Shutdown()));
+                    if (!proceed)
+                    {
+                        NotifyUpdateStatus(loc["Toast_NoHash"]);
+                        return;
+                    }
+
+                    LogManager.Warning("[Update] 用户在缺少完整性校验值的情况下选择了继续安装（已如实告知风险）");
+                    (pkg, failure) = await UpdateService.DownloadUpdateAsync(info, allowMissingHash: true);
+                }
+
+                if (pkg == null)
+                {
+                    // 按原因给不同提示：整机唯一的"一律下载失败"会让用户在网络里白找原因
+                    NotifyUpdateStatus(failure switch
+                    {
+                        UpdateService.DownloadFailure.HashMismatch => loc["Toast_HashMismatch"],
+                        UpdateService.DownloadFailure.MissingHash => loc["Toast_NoHash"],
+                        _ => loc["Toast_DownloadFailed"],
+                    });
+                    return;
+                }
+
+                NotifyUpdateStatus(loc["Toast_Extracting"]);
+                string? exe = await UpdateService.ExtractExeAsync(pkg);
+                if (exe == null)
+                {
+                    NotifyUpdateStatus(loc["Toast_ExtractFailed"]);
+                    return;
+                }
+
+                if (UpdateService.ApplyUpdate(exe))
+                {
+                    NotifyUpdateStatus(loc["Toast_Ready"]);
+                    System.Windows.Application.Current?.Dispatcher.BeginInvoke(
+                        new Action(() => System.Windows.Application.Current?.Shutdown()));
+                }
+                else
+                {
+                    NotifyUpdateStatus(loc["Toast_InstallFailed"]);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                NotifyUpdateStatus(ShoreHue.UI.Localization.LocalizationManager.Instance["Toast_InstallFailed"]);
+                // ★ 本方法是 fire-and-forget（`_ = InstallUpdateAsync(...)`），
+                //   以前没有整体兜底：一旦抛出就是"未观察的 Task 异常"，更新流程会静默卡在
+                //   "正在下载…"那一条通知上，用户以为一直在下载。
+                LogManager.Error("[通知坞] 更新安装流程异常", ex);
+                NotifyUpdateStatus(loc["Toast_InstallFailed"]);
             }
         }
 
@@ -222,19 +287,46 @@ namespace ShoreHue.Infrastructure.WinApi
 
         private static void PollCenter()
         {
-            try
-            {
-                var items = NotificationCenterReader.Scan();
-                if (items.Count == 0) return;
+            // ★ 读通知中心 = 打开 SQLite（wpndatabase.db）+ 查询，是**阻塞 I/O**。
+            //   以前它直接跑在 UI 线程的 DispatcherTimer 上，既吃 CPU 又会让界面卡一下；
+            //   现在查询放后台，只有集合变更回到 UI 线程（Notifications 绑定在 ListBox 上）。
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher == null) return;
 
-                foreach (var item in items)
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                List<ToastNotificationItem> items;
+                try
                 {
-                    Notifications.Insert(0, item);
-                    while (Notifications.Count > MaxItems) Notifications.RemoveAt(Notifications.Count - 1);
+                    items = NotificationCenterReader.Scan();
                 }
-                Changed?.Invoke();
-            }
-            catch { }
+                catch (Exception ex)
+                {
+                    // 通知中心读不到（库被占用/结构变化）→ 本轮跳过，下一轮重试
+                    LogManager.Debug($"[通知坞] 轮询通知中心失败（下一轮重试）：{ex.Message}");
+                    return;
+                }
+                if (items == null || items.Count == 0) return;
+
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        if (!_scanning) return;   // 面板已隐藏：丢弃本轮结果（下次显示会重新拉）
+                        foreach (var item in items)
+                        {
+                            Notifications.Insert(0, item);
+                            while (Notifications.Count > MaxItems) Notifications.RemoveAt(Notifications.Count - 1);
+                        }
+                        Changed?.Invoke();
+                    }
+                    catch (Exception ex)
+                    {
+                        // 一条通知没能进坞（用户会少看到一条通知）
+                        LogManager.Warning($"[通知坞] 添加通知失败：{ex.Message}");
+                    }
+                }));
+            });
         }
 
         private static readonly Dictionary<string, string> _appIdShortcutCache = new();
@@ -256,7 +348,10 @@ namespace ShoreHue.Infrastructure.WinApi
                     "explorer.exe",
                     $"shell:AppsFolder\\{appId}") { UseShellExecute = true });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[通知坞] 打开应用失败 appId={appId}：{ex.Message}");
+            }
         }
 
         private static string? FindShortcutForAppId(string appId)
@@ -308,6 +403,10 @@ namespace ShoreHue.Infrastructure.WinApi
                 bool changed = false;
                 var seen = new HashSet<IntPtr>();
                 int currentPid = Environment.ProcessId;
+                // ★ 虚拟屏幕范围在一次扫描内是常量：原来它写在 EnumWindows 回调里，
+                //   等于每个顶层窗口都要多打 4 次 GetSystemMetrics（几百个窗口 × 每秒 1.25 次扫描）。
+                int vx = GetSystemMetrics(76), vy = GetSystemMetrics(77);
+                int vw = GetSystemMetrics(78), vh = GetSystemMetrics(79);
 
                 EnumWindows((hwnd, _) =>
                 {
@@ -325,8 +424,6 @@ namespace ShoreHue.Infrastructure.WinApi
 
                         // ★ 排除完全在屏幕外的隐藏窗口（如 -32000 坐标的辅助窗口），
                         //   但保留副屏上的通知（按虚拟屏幕范围判断）
-                        int vx = GetSystemMetrics(76), vy = GetSystemMetrics(77);
-                        int vw = GetSystemMetrics(78), vh = GetSystemMetrics(79);
                         bool onVirtualScreen =
                             r.Right > vx && r.Bottom > vy && r.Left < vx + vw && r.Top < vy + vh;
                         if (!onVirtualScreen) return true;
@@ -344,7 +441,7 @@ namespace ShoreHue.Infrastructure.WinApi
                             return true;
                         }
 
-                        ShoreHue.Core.Infrastructure.Logging.LogManager.Debug(
+                        LogManager.Debug(
                             $"[ToastMonitor] 捕获候选: class={className} pid={pid} rect=({r.Left},{r.Top},{r.Right},{r.Bottom}) text='{text[..Math.Min(40, text.Length)]}'");
 
                         string signature = pid + "|" + text;
@@ -380,7 +477,11 @@ namespace ShoreHue.Infrastructure.WinApi
                         seen.Add(hwnd);
                         changed = true;
                     }
-                    catch { }
+                    catch
+                    {
+                        // 尽力而为且刻意不记日志：枚举回调每次扫描都会走，单个窗口读失败只影响它自己，
+                        //   下一轮扫描会重试 —— 记日志会刷屏
+                    }
                     return true;
                 }, IntPtr.Zero);
 
@@ -398,7 +499,11 @@ namespace ShoreHue.Infrastructure.WinApi
 
                 if (changed || gone.Count > 0) Changed?.Invoke();
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 轮询式扫描失败（下一轮会重试）→ Debug，避免持续失败时刷屏
+                LogManager.Debug($"[通知坞] 扫描通知窗口失败（下一轮重试）：{ex.Message}");
+            }
         }
 
         private static bool IsToastLike(IntPtr hwnd, string className, RECT r)

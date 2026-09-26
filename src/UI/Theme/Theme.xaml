@@ -42,17 +42,18 @@
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="bd"
                             Background="{TemplateBinding Background}"
-                            CornerRadius="6"
+                            CornerRadius="4"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center"
                                           VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
+                        <!-- ★ Win11/WinUI3：次级按钮的悬停/按下是**半透明白叠加**，不是换一个实心灰 -->
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource HoverBrush}"/>
+                            <Setter TargetName="bd" Property="Background" Value="#1AFFFFFF"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource PressedBrush}"/>
+                            <Setter TargetName="bd" Property="Background" Value="#0DFFFFFF"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.4"/>
@@ -72,7 +73,7 @@
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="bd"
                             Background="{TemplateBinding Background}"
-                            CornerRadius="6"
+                            CornerRadius="4"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center"
                                           VerticalAlignment="Center"/>
@@ -82,7 +83,7 @@
                             <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentHoverBrush}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentBrush}"/>
+                            <Setter TargetName="bd" Property="Background" Value="#005A9E"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.4"/>
@@ -117,7 +118,7 @@
                             Background="{TemplateBinding Background}"
                             BorderBrush="{TemplateBinding BorderBrush}"
                             BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="6"
+                            CornerRadius="4"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
@@ -146,7 +147,7 @@
                 <ControlTemplate TargetType="Button">
                     <Border x:Name="bd"
                             Background="{TemplateBinding Background}"
-                            CornerRadius="6"
+                            CornerRadius="4"
                             Padding="{TemplateBinding Padding}">
                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Border>
@@ -321,6 +322,10 @@
     </Style>
 
     <!-- ================= 滚动条 ================= -->
+    <!-- ★ 必须按方向分开设尺寸：以前只写 Width=8（那是**竖向**滚动条的宽），横向滚动条也被套上，
+         结果它变成一个 8px 宽、约 2px 高的残条（用户原话："代码编辑框下方有横向的很窄的滚动条"）。
+         横向条的"宽"应该随容器拉伸，8 应该是它的**高**。
+         同理 IsDirectionReversed：竖向为 True，横向必须 False，否则拖拽方向相反。 -->
     <Style TargetType="ScrollBar">
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Width" Value="8"/>
@@ -340,9 +345,21 @@
                             </Track.Thumb>
                         </Track>
                     </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Orientation" Value="Horizontal">
+                            <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+        <!-- ★ 属性元素必须排在所有 Setter（内容）之后：XAML 不允许它插在内容中间（MC3088）。 -->
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Width" Value="Auto"/>
+                <Setter Property="Height" Value="8"/>
+            </Trigger>
+        </Style.Triggers>
     </Style>
 
     <!-- ================= Win11 深色下拉框（面板内） ================= -->
@@ -404,7 +421,7 @@
                             <Border Background="#2D2D2D"
                                     BorderBrush="#5C5C5C"
                                     BorderThickness="1"
-                                    CornerRadius="6"
+                                    CornerRadius="8"
                                     Margin="0,4,0,0"
                                     MaxHeight="280">
                                 <ScrollViewer VerticalScrollBarVisibility="Auto">

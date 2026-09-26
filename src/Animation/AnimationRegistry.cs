@@ -13,6 +13,15 @@ namespace ShoreHue.Animation
         private static readonly Dictionary<string, IAnimation> _map = new();
         private static readonly object _lock = new object();
 
+        /// <summary>自定义动画抛异常时上报（宿主订阅后交给插件守卫熔断）。★ 放在这里是为了
+        /// 让 ShapeAnimator 只依赖动画命名空间，不反向依赖 UI 层。</summary>
+        public static event System.Action<System.Exception>? CustomAnimationError;
+
+        public static void ReportCustomAnimationError(System.Exception ex)
+        {
+            try { CustomAnimationError?.Invoke(ex); } catch { /* 订阅方异常不能反过来打断动画收尾 */ }
+        }
+
         /// <summary>查自定义动画（key = 动画 Id）。未命中返回 false。</summary>
         public static bool TryGet(string id, out IAnimation? animation)
         {

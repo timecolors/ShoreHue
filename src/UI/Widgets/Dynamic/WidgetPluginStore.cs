@@ -5,6 +5,10 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ShoreHue.Animation;
+using ShoreHue.Core.Infrastructure.Logging;
+using ShoreHue.Core.Infrastructure.Service;
+using ShoreHue.Core.Services;
+using ShoreHue.Core.Services.Configuration;
 using ShoreHue.Infrastructure.Utils;
 using ShoreHue.UI.Status;
 
@@ -36,6 +40,12 @@ namespace ShoreHue.UI.Widgets.Dynamic
         /// WidgetSwitcher 只把 Widget 类当作小组件标签，Panel 类走区域面板下拉。</summary>
         [JsonIgnore]
         public string Kind { get; set; } = "";
+
+        /// <summary>是否内置件（manifest 带 system:true）。
+        /// ★ 内置件迁移中：默认只作文件夹展示（跳过加载），但列在 `MigratedBuiltinIds` 里的
+        ///   会真正**从文件夹加载**并在界面上标注——它们才是"文件夹即真相源"里那份在跑的代码。</summary>
+        [JsonIgnore]
+        public bool IsBuiltin { get; set; }
     }
 
     /// <summary>
@@ -55,11 +65,153 @@ namespace ShoreHue.UI.Widgets.Dynamic
             return true;
         }
 
+        /// <summary>
+        /// 「已迁移到从 seabed 文件夹加载」的内置件 id（过渡期清单：迁一个加一个）。
+        ///
+        /// 背景：内置小组件历史上是**编译进 exe、由宿主直接 new** 的，文件夹里那份带 system:true 只作展示 ——
+        /// 于是"用户在文件夹里改内置小组件"根本不生效，与"文件夹即真相源"相反。
+        /// 迁移做法：把 id 加进这里 → 加载器不再跳过它（真正从文件夹编译）→ WidgetSwitcher 优先用它；
+        ///   文件坏了/没了则**回退 exe 内置实现**（不丢功能），并在日志里说明。
+        /// 六个都迁完并稳定后，删掉 WidgetSwitcher 里的内置实例字段与兜底分支。
+        /// </summary>
+        public static readonly HashSet<string> MigratedBuiltinIds = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "timer",       // 试点：无参构造，且宿主没有别处引用它的具体类型
+            "calculator",  // 无参构造；宿主内部只在 WidgetSwitcher 的 _tabs 里引用
+            "clipboard",   // 已加无参构造（服务经 HostCapabilities 取）；宿主无外部引用
+            "note",        // 已加无参构造（服务经 HostCapabilities 取）；宿主无外部引用
+            "web",         // 已加无参构造（设置经 HostCapabilities 取）；宿主无外部引用
+            "textai",      // 已收敛：静态事件换成 HostCapabilities.OpenSettingsPage；热键走 ITextAiWidget 接口拿当前实例
+        };
+
+        /// <summary>
+        /// 「已迁移到从 seabed 文件夹加载」的内置面板功能 id（过渡期清单：迁一个加一个）。
+        ///
+        /// 背景与小组件同：内置面板历史上编译进 exe、由 PanelContentController 直接 new 出来，
+        /// 文件夹里那份带 system:true 只作展示 —— 于是"改文件夹里的 main.cs"不生效。
+        /// 迁移做法：把 id 加进这里 → 加载器不再跳过它（真正从文件夹编译）→ PanelContentController
+        /// 优先用它；文件坏了/编译失败则回退宿主视图（不丢功能），日志里说明。
+        /// </summary>
+        public static readonly HashSet<string> MigratedPanelIds = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "panel-notification",   // 通知坞：main.cs 为完整纯代码实现（分组 + 单条关闭）
+            "panel-recent",         // 最近使用：main.cs 为完整纯代码实现（三标签）
+            "panel-quicksettings",  // 快捷设置：main.cs 为完整纯代码实现（音量/亮度/蓝牙/WiFi/热点）
+            "panel-windowcontrol",  // 窗口控制：main.cs 为薄封装（复用宿主 WindowControlView）
+            "panel-taskbar-feature",// 任务栏：薄封装（宿主按 TaskbarView 类型取内容 → 已改为向下查找）
+            "panel-ai",             // AI 助手：薄封装（设置刷新改到 OnActivated）
+            "panel-apphelper",      // 应用辅助：薄封装（宿主按 AppHelperView 类型取内容 → 已改为向下查找）
+        };
+
         /// <summary>ShoreHue 内置小组件 id（官方随附，删除可能导致运行异常）。</summary>
         private static readonly HashSet<string> _builtinIds = new(System.StringComparer.OrdinalIgnoreCase)
         {
             "timer", "calculator", "clipboard", "note", "textai", "web"
         };
+
+        // ==================== 信任（id + 内容哈希）====================
+
+        /// <summary>宿主写的来源标记文件名（市场拾贝 / 宿主解包 .shpkg 时写入；包内容无法伪造"我是本地"）。</summary>
+        public const string OriginMarkerFile = ".origin";
+
+        /// <summary>该目录是否带宿主来源标记（=宿主明确知道这是"外来包"）。</summary>
+        public static bool HasOriginMarker(string dir) => File.Exists(Path.Combine(dir, OriginMarkerFile));
+
+        /// <summary>写入来源标记（宿主在安装/解包后调用）。返回是否写入成功——调用方必须处理失败：
+        /// 没有标记的目录会被信任判定当成"本地代码"直接放行，等于给外来包发了免检牌。</summary>
+        public static bool WriteOriginMarker(string dir, string origin = "package")
+        {
+            string marker = Path.Combine(dir, OriginMarkerFile);
+            try { File.WriteAllText(marker, origin); return true; }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[插件] 无法写入来源标记 {marker}：解包结果按外来代码回滚", ex);
+                return false;
+            }
+        }
+
+        // ★ 信任的读写走 IPluginTrustStore（internal，宿主专用）——它对插件不可见，
+        //   所以"给插件登记信任"这件事只有宿主能做。见 docs/SECURITY.md。
+        /// <summary>用户是否对该 id 显式选择"改用沙箱"。</summary>
+        public static bool IsExplicitlySandboxed(string id)
+        {
+            try
+            {
+                var s = ServiceManager.Instance.GetService<SettingsManager>() as IPluginTrustStore;
+                return s != null && s.IsPluginTrusted(id, DenySentinel);
+            }
+            catch (Exception ex)
+            {
+                // 读不到信任表 → 按"未显式改用沙箱"处理（fail-safe 方向：宿主来源标记仍会拦住外来包）
+                LogManager.Warning($"[插件] 读取插件信任表失败（{id}）：{ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>"显式改用沙箱"的哨兵值（放在同一张信任表里，便于随设置落盘）。</summary>
+        public const string DenySentinel = "!sandboxed";
+
+        /// <summary>
+        /// 纯函数信任判定（可单测）：
+        ///   ① 用户显式"改用沙箱" → 不可信；
+        ///   ② 用户显式"信任"且哈希匹配 → 可信；
+        ///   ③ 宿主来源标记 / 宿主写的 trustedSource:false → 不可信（外来包）；
+        ///   ④ 其余 → 可信（海床初衷：文件夹即真相源，本地代码不设限）。
+        /// </summary>
+        public static bool ComputeTrust(bool hostOriginMarker, bool? manifestTrusted,
+                                        bool explicitlySandboxed, bool trustedByHash)
+        {
+            if (explicitlySandboxed) return false;
+            if (trustedByHash) return true;
+            if (hostOriginMarker) return false;
+            if (manifestTrusted == false) return false;
+            return true;
+        }
+
+        /// <summary>插件内容哈希（源码 + XAML + 代码后置；任一变化即视为不同内容）。</summary>
+        public static string ContentHash(string? source, string? xaml, string? xamlCs)
+            => WidgetCompiler.SourceHash((source ?? "") + "\u0001" + (xaml ?? "") + "\u0002" + (xamlCs ?? ""));
+
+        /// <summary>该 id + 内容是否已被用户显式信任。</summary>
+        public static bool IsTrustedById(string id, string contentHash)
+        {
+            try
+            {
+                var s = ServiceManager.Instance.GetService<SettingsManager>() as IPluginTrustStore;
+                return s != null && s.IsPluginTrusted(id, contentHash);
+            }
+            catch (Exception ex)
+            {
+                // 查不到信任记录 → 按"未受信"处理（内容哈希信任失效的保守方向：仍受来源标记约束）
+                LogManager.Warning($"[插件] 查询插件信任记录失败（{id}）：{ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>界面「信任」开关：把当前内容记为受信（写盘后 Reload 生效）。</summary>
+        public static bool SetTrusted(string id, bool trusted)
+        {
+            try
+            {
+                var plg = GetById(id);
+                if (plg == null) return false;
+                var s = ServiceManager.Instance.GetService<SettingsManager>() as IPluginTrustStore;
+                if (s == null) return false;
+                if (trusted) s.SetPluginTrusted(id, ContentHash(plg.Source, plg.Xaml, plg.XamlCs));
+                else { s.RevokePluginTrust(id); s.SetPluginTrusted(id, DenySentinel); }   // 显式"改用沙箱"
+                Reload();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // 用户点了"信任/改用沙箱"却没生效 → 调用方据此弹提示，日志留原因
+                LogManager.Error($"[插件] 修改 [{id}] 信任状态失败：{ex.Message}", ex);
+                return false;
+            }
+        }
+
+        /// <summary>该插件当前是否受信（供界面显示）。TrustedSource 字段在加载时已按 ComputeTrust 解析为"有效信任"。</summary>
+        public static bool IsTrusted(WidgetPlugin plugin) => plugin != null && plugin.TrustedSource;
 
         /// <summary>是否为 ShoreHue 内置文件（官方 author 或内置 id 清单）。</summary>
         public static bool IsBuiltin(WidgetPlugin plugin)
@@ -69,41 +221,90 @@ namespace ShoreHue.UI.Widgets.Dynamic
             return string.Equals(plugin.Author, "timecolors", StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>权限 → 显示标签。</summary>
-        public static string PermissionLabel(string p) => p switch
-        {
-            "network" => "联网",
-            "clipboard" => "剪贴板",
-            "file" => "本地文件",
-            _ => "无权限"
-        };
+        // ★ 权限标签只有一处实现：WidgetPermissions.PermissionLabel（7 类）。
+        //   这里曾另有一份 3 类版本 —— 两套真相会随新增权限静默漂移，已删除。
 
         /// <summary>列表变化（安装/删除）时触发，供 WidgetSwitcher 重建标签。</summary>
         public static event Action? Changed;
+
+        /// <summary>宿主在"改动了 seabed 文件"之后主动通知一次（与 Save/Delete/watcher 同一条链路）。
+        /// ★ 用于海床文件编辑器：它保存时把 watcher 挂起了（防自触发），若不主动通知，
+        ///   改了内置件/插件文件要等下次重启或别的事件才生效。</summary>
+        public static void NotifyChanged() => Changed?.Invoke();
+
+        // ==================== 加载期问题（让"它为什么没出现"看得见）====================
+
+        /// <summary>本次加载没能成功的原因（插件 id → 一句话）。
+        /// ★ 这些**以前只写日志**：小组件在标签栏直接消失、区域面板悄悄退化成通知坞，
+        ///   用户只看到"东西没了"，不知道是编译失败还是被沙箱拦了 —— 与"让用户知道风险/知道发生了什么"直接冲突。
+        ///   界面（海床页状态行、设置·小组件列表）读这里把原因说出来。</summary>
+        public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> LoadIssues
+            = new(StringComparer.OrdinalIgnoreCase);
+
+        public static void SetLoadIssue(string? id, string? reason)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return;
+            try
+            {
+                string line = OneLine(reason);
+                LoadIssues[id!] = line;
+                // Debug 级留痕：界面上的"⚠ 原因"是从这里来的，排查"我看到的是哪一次失败"时需要
+                LogManager.Debug($"[插件] 记录加载问题：{id} = {line}");
+            }
+            catch (Exception ex) { LogManager.Warning($"[插件] 记录加载问题失败（{id}）：{ex.Message}"); }
+        }
+
+        public static void ClearLoadIssue(string? id)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return;
+            LoadIssues.TryRemove(id!, out _);
+        }
+
+        public static string? GetLoadIssue(string? id)
+            => string.IsNullOrWhiteSpace(id) ? null : (LoadIssues.TryGetValue(id!, out var r) ? r : null);
+
+        /// <summary>一行摘要（没有问题时返回空串），供状态行直接显示。</summary>
+        public static string DescribeLoadIssues()
+        {
+            try
+            {
+                if (LoadIssues.IsEmpty) return "";
+                return "⚠ " + string.Join("；", LoadIssues
+                    .OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(kv => kv.Key + "：" + kv.Value));
+            }
+            catch (Exception ex)
+            {
+                // 汇总失败不能把界面搞崩（这里被 UI 直接调用），只留痕
+                LogManager.Warning($"[插件] 汇总加载问题失败：{ex.Message}");
+                return "";
+            }
+        }
+
+        /// <summary>编译器错误是一大坨多行文本，状态行放不下 → 压成一行并截断。</summary>
+        private static string OneLine(string? text)
+        {
+            string t = (text ?? "").Replace('\r', ' ').Replace('\n', ' ').Trim();
+            return t.Length <= 120 ? t : t[..120] + "…";
+        }
 
         // ★ 文件夹变化监听：用户在系统文件夹增删文件时，自动刷新小组件列表（双向同步）
         private static FileSystemWatcher? _watcher;
         private static readonly object _watcherLock = new object();
 
-        /// <summary>开始监听小组件文件夹（应用启动时调用一次；Watcher 生命周期随进程）。
-        /// ★ 职责边界（2026-09-01 明确）：**只检测文件/目录的增删**（用户手工放 .dbp 包 / .cs
-        ///   单文件、删除文件夹 → 海床自动识别更新）。**内容修改不归 watcher 管**：应用内保存
-        ///   （Save/SaveNodeToFolder）已显式 Reload+Changed，用户改内容也走海床界面。
-        /// ★ 防死循环关键：NotifyFilter **只留 FileName|DirectoryName，去掉 LastWrite**——
-        ///   应用自身覆盖写文件（main.cs/manifest.json）不再触发事件，只有新建/删除/重命名触发；
-        ///   配合 800ms 防抖 + Reload 期间暂停 + 应用写盘走 WithWatcherSuspended，切断
-        ///   "应用写盘 → 事件 → Reload → 又写盘"的自触发链（曾实测 CPU 78%/100% 卡死）。</summary>
+        // ★ 防抖窗口：一次保存常产生多个事件（临时文件 + 改名覆盖 + 写入），窗口内的事件合并为一次 Reload。
+        private const int WatchDebounceMs = 300;
         private static System.Threading.Timer? _watchDebounceTimer;
         private static readonly object _watchDebounceLock = new object();
-        private static bool _watchDebouncePending;
+        private static string? _lastTreeSignature;   // 最近一次已处理的海床目录状态签名（内容没变就不刷新）
 
         /// <summary>开始监听小组件文件夹（应用启动时调用一次；Watcher 生命周期随进程）。
-        /// ★ VS Code 风格：文件事件 → 时间窗口聚合（防抖合并，不丢事件）→ 窗口结束统一 Reload。
-        ///    - 事件只触发"扫描更新缓存"（ReloadCore 轻量，不编译），编译在使用时按需进行；
-        ///    - 应用自身写盘走 WithWatcherSuspended（暂停 watcher），不引发事件链；
-        ///    - NotifyFilter 只留 FileName|DirectoryName（去掉 LastWrite），应用覆盖写不触发。
-        /// ★ 相比旧版（800ms 直接丢弃后续事件）：聚合窗口内收集全部事件，窗口结束处理一次，
-        ///   避免"丢真实变更"；且 Reload 串行化 + 暂停 watcher 防自触发循环（曾实测 CPU 卡死）。</summary>
+        /// ★ 职责边界：**增删改名 + 内容写入都检测** —— 海床是文件资源管理器，在 Windows 文件夹里改内容
+        ///   和在应用内改必须等效（记事本原地保存只产生 LastWrite 事件，实测不监听就完全没反应）。
+        /// ★ 防死循环：宿主自己写盘一律走 WithWatcherSuspended（暂停监听），自触发链从源头切断；
+        ///   再加"目录状态签名"短路——事件来了但内容没变就不 Reload、不通知（写盘被暂停期间的漏网事件、
+        ///   属性变更等都不会引起界面抖动）。历史上曾因"应用写盘→事件→Reload→又写盘"实测 CPU 78% 卡死。
+        /// ★ 事件只触发"扫描更新缓存"（ReloadCore 轻量，不编译），编译在使用时按需进行。</summary>
         public static void StartWatching()
         {
             lock (_watcherLock)
@@ -115,10 +316,11 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     _watcher = new FileSystemWatcher(RootDir)
                     {
                         IncludeSubdirectories = true,
-                        // ★ 只监听增删：内容写入（LastWrite）不触发，应用自身写盘不再引发事件链
+                        // ★ 增删改名 + 内容写入都监听：缺 LastWrite 会导致"在文件夹里改文件内容"永远不生效
                         NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName
+                                       | NotifyFilters.LastWrite | NotifyFilters.Size
                     };
-                    // VS Code 时间窗口聚合：事件 → 标记 pending → 防抖定时器（120ms）到点统一 Reload
+                    // 事件 → 防抖窗口（WatchDebounceMs，每来一个事件窗口往后推）→ 到点统一 Reload
                     FileSystemEventHandler handler = (_, _) => ScheduleWatchReload();
                     _watcher.Created += handler;
                     _watcher.Deleted += handler;
@@ -126,38 +328,101 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     _watcher.Renamed += (_, _) => ScheduleWatchReload();
                     _watcher.EnableRaisingEvents = true;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 监听不可用不致命（启动/手动 Reload 仍会扫描），但"往文件夹里丢文件"不再自动出现
+                    _watcher?.Dispose();
+                    _watcher = null;   // 置空以便下次调用重试（否则一次失败会永久卡在"看起来已启动"）
+                    LogManager.Warning($"[插件] 无法监听海床文件夹（文件增删不再自动刷新）：{ex.Message}");
+                }
             }
         }
 
-        /// <summary>聚合 watcher 事件：窗口内标记 pending，定时器到点统一 Reload（不丢事件、不风暴）。</summary>
+        /// <summary>聚合 watcher 事件：每个事件把防抖窗口往后推，窗口静默 WatchDebounceMs 后统一 Reload。
+        /// ★ 真防抖（旧实现是"首个事件起算的固定 120ms 窗口"：后续事件直接丢弃，注释却写"只重置定时器"，
+        ///   注释与实现不一致）——一次保存常产生 3 个连续事件，固定窗口容易在写盘中途就 Reload 到半成品。</summary>
         private static void ScheduleWatchReload()
         {
             lock (_watchDebounceLock)
             {
-                if (_watchDebouncePending) return;   // 已有挂起的刷新，只重置定时器
-                _watchDebouncePending = true;
+                if (_watchDebounceTimer != null)
+                {
+                    // 已挂起的窗口 → 往后推
+                    try { _watchDebounceTimer.Change(WatchDebounceMs, System.Threading.Timeout.Infinite); return; }
+                    catch (ObjectDisposedException) { /* 上一轮回调已释放，下面重建 */ }
+                }
+                _watchDebounceTimer = new System.Threading.Timer(
+                    _ => WatchReloadCallback(), null, WatchDebounceMs, System.Threading.Timeout.Infinite);
             }
-            _watchDebounceTimer?.Dispose();
-            _watchDebounceTimer = new System.Threading.Timer(_ =>
+        }
+
+        /// <summary>防抖到点：内容确实变了才 Reload + 通知（内容没变就什么都不做）。</summary>
+        private static void WatchReloadCallback()
+        {
+            lock (_watchDebounceLock)
             {
-                lock (_watchDebounceLock) _watchDebouncePending = false;
+                _watchDebounceTimer?.Dispose();
+                _watchDebounceTimer = null;
+            }
+            try
+            {
+                // ★ 内容短路：事件来了不代表内容变了（暂停监听的漏网写、属性/时间戳变更、宿主重写同名文件）。
+                //   签名相同 → 不 Reload、不通知，避免无谓的界面重建与 Roslyn 编译。
+                string sig = ComputeTreeSignature();
+                if (sig == _lastTreeSignature)
+                {
+                    LogManager.Debug("[插件] 海床目录有文件事件但内容未变，跳过刷新");
+                    return;
+                }
+                _lastTreeSignature = sig;
+
+                // ★ 暂停 watcher：Reload 的目录扫描（含单文件归一化、包解包落盘）会再产生事件，防"事件→Reload→事件"
+                if (_watcher != null) _watcher.EnableRaisingEvents = false;
                 try
                 {
-                    // ★ 暂停 watcher：Reload 的目录扫描会产生文件系统事件，防"事件→Reload→事件"死循环
-                    if (_watcher != null) _watcher.EnableRaisingEvents = false;
+                    Reload();
+                    Changed?.Invoke();
+                }
+                finally
+                {
+                    if (_watcher != null) _watcher.EnableRaisingEvents = true;
+                }
+                // Reload 可能自己改写了目录（归一化/解包）→ 重算签名，免得把宿主自己的写盘当成用户改动
+                _lastTreeSignature = ComputeTreeSignature();
+            }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[插件] 文件夹变更后的刷新失败（列表可能不是最新）：{ex.Message}", ex);
+            }
+        }
+
+        /// <summary>海床目录状态签名（相对路径 + 长度 + 最后写入时间）。算不出来时返回随机值 =
+        /// 按"已变化"处理（宁可多刷新一次，不可漏刷新）。</summary>
+        private static string ComputeTreeSignature()
+        {
+            try
+            {
+                if (!Directory.Exists(RootDir)) return "";
+                var sb = new System.Text.StringBuilder();
+                foreach (var f in Directory.EnumerateFiles(RootDir, "*", SearchOption.AllDirectories)
+                                           .OrderBy(p => p, StringComparer.OrdinalIgnoreCase))
+                {
+                    // 逐文件取信息：文件可能正被写入/删除（事件到得快）→ 跳过这一条，不影响整体判断
                     try
                     {
-                        Reload();
-                        Changed?.Invoke();
+                        var fi = new FileInfo(f);
+                        sb.Append(fi.FullName).Append('|').Append(fi.Length).Append('|')
+                          .Append(fi.LastWriteTimeUtc.Ticks).Append('\n');
                     }
-                    finally
-                    {
-                        if (_watcher != null) _watcher.EnableRaisingEvents = true;
-                    }
+                    catch (Exception ex) { LogManager.Debug($"[插件] 读取文件状态失败（跳过该条）{f}：{ex.Message}"); }
                 }
-                catch { }
-            }, null, 120, System.Threading.Timeout.Infinite);   // 120ms 窗口聚合
+                return WidgetCompiler.SourceHash(sb.ToString());
+            }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[插件] 计算海床目录签名失败（本次按已变化处理）：{ex.Message}");
+                return Guid.NewGuid().ToString("N");
+            }
         }
 
         /// <summary>
@@ -171,11 +436,20 @@ namespace ShoreHue.UI.Widgets.Dynamic
             var watcher = _watcher;
             if (watcher == null) { action(); return; }
             try { watcher.EnableRaisingEvents = false; }
-            catch { }
+            catch (Exception ex)
+            {
+                // 暂停失败：应用自身写盘可能触发 watcher 事件链（曾实测 CPU 卡死），必须留痕
+                LogManager.Warning($"[插件] 暂停海床文件夹监听失败（写盘可能触发额外刷新）：{ex.Message}");
+            }
             try { action(); }
             finally
             {
-                try { watcher.EnableRaisingEvents = true; } catch { }
+                try { watcher.EnableRaisingEvents = true; }
+                catch (Exception ex)
+                {
+                    // 恢复失败 = 之后文件增删不再自动刷新；不能抛出（会盖掉 action 的真实异常），只记日志
+                    LogManager.Warning($"[插件] 恢复海床文件夹监听失败（后续文件增删不再自动刷新）：{ex.Message}");
+                }
             }
         }
 
@@ -186,6 +460,12 @@ namespace ShoreHue.UI.Widgets.Dynamic
         public static string WidgetsCodeDir => Path.Combine(RootDir, "面板", "小组件");
         /// <summary>面板功能代码目录 = 面板/面板功能（面板内容代码，用于区域面板下拉）。</summary>
         public static string PanelsCodeDir => Path.Combine(RootDir, "面板", "面板功能");
+
+        /// <summary>
+        /// 面板所在的一级目录（<b>扁平化后的唯一位置</b>）：顶层 = 设置页签，面板在 <c>面板/</c> 下平铺、同级。
+        /// ★ 上面两个 <c>*CodeDir</c> 是扁平化之前的旧位置，仅用于①启动迁移②过渡期兜底扫描，不再写入。
+        /// </summary>
+        public static string PanelsDir => Path.Combine(RootDir, "面板");
 
         /// <summary>旧版本 widgets/ 目录 → seabed/ 迁移（首次运行执行一次）。</summary>
         private static void MigrateLegacyWidgetsDir()
@@ -198,7 +478,10 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     Directory.Move(old, RootDir);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[插件] 旧 widgets/ 目录迁移失败（旧小组件本轮不可见）：{ex.Message}");
+            }
         }
 
         private static List<WidgetPlugin>? _cache;
@@ -220,11 +503,30 @@ namespace ShoreHue.UI.Widgets.Dynamic
         {
             lock (_reloadLock)
             {
+                // ★ 分段计时：启动卡顿（实测"第二阶段→主窗口初始化完成"之间有约 5 秒空白）需要先看清时间花在哪，
+                //   只在这段明显慢时记一行，避免高频 Reload 刷屏。
+                var sw = System.Diagnostics.Stopwatch.StartNew();
                 ReloadCore();
+                long tCore = sw.ElapsedMilliseconds;
                 // ★ 状态栏/动画插件缓存随 Reload 一起刷新（watcher 增删文件、应用保存后都会走到这里）
                 ReloadStatusProviders();
+                long tStatus = sw.ElapsedMilliseconds;
                 ReloadAnimations();
+                long tAnim = sw.ElapsedMilliseconds;
+                if (tAnim > 300)
+                    LogManager.Debug($"[插件] Reload 耗时 {tAnim}ms：扫描 {tCore}ms / 状态栏 {tStatus - tCore}ms / 动画 {tAnim - tStatus}ms");
             }
+        }
+
+        /// <summary>
+        /// 让下次访问重新扫描海床目录。Seeder 升级模板文件后必须调 —— 否则本轮仍会用升级前的缓存内容，
+        /// 表现为「改了仓库模板要启动两次才生效」（第一次 Seeder 升级文件，插件商店却在升级前就扫过并缓存了）。
+        /// </summary>
+        public static void InvalidateCache()
+        {
+            _cache = null;
+            _statusProviders = null;
+            _animations = null;
         }
 
         private static void ReloadCore()
@@ -249,12 +551,22 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     // ① 分组目录下的 .cs 单文件 → 归一化为 <id>/main.cs（自动包裹）
                     foreach (var csFile in Directory.GetFiles(groupDir, "*.cs"))
                     {
-                        try { NormalizeSingleCs(csFile, groupDir); } catch { }
+                        try { NormalizeSingleCs(csFile, groupDir); }
+                        catch (Exception ex)
+                        {
+                            // 单个文件归一化失败只影响这一个小组件，但"我放了文件却没出现"必须能从日志查
+                            LogManager.Warning($"[插件] 归一化单文件失败 {csFile}：{ex.Message}");
+                        }
                     }
-                    // ② 分组目录下的 .dbp 包 → 自动解包为 <id>/ 目录
-                    foreach (var dbpFile in Directory.GetFiles(groupDir, "*.dbp"))
+                    // ② 分组目录下的预设包（.shpkg，兼容旧版 .dbp）→ 自动解包为 <id>/ 目录
+                    foreach (var archive in Directory.GetFiles(groupDir, "*.shpkg")
+                                 .Concat(Directory.GetFiles(groupDir, "*.dbp")))
                     {
-                        try { NormalizeDbp(dbpFile, groupDir); } catch { }
+                        try { NormalizePackageArchive(archive, groupDir); }
+                        catch (Exception ex)
+                        {
+                            LogManager.Error($"[插件] 解包预设包失败（包未安装）{archive}：{ex.Message}", ex);
+                        }
                     }
                     // ③ 标准目录（main.cs + manifest.json；或 XAML 形态 <id>.xaml + <id>.xaml.cs）
                     foreach (var dir in Directory.GetDirectories(groupDir))
@@ -281,12 +593,11 @@ namespace ShoreHue.UI.Widgets.Dynamic
                             string kind = "";
                             if (File.Exists(mf))
                             {
-                                // ★★★ 2026-09-01 修复（重构回归）：新写盘端（BuiltinTemplateSeeder /
-                                //   SaveNodeToFolder）用小写 Dictionary 键写 manifest（"name"/"system"/"kind"…），
-                                //   而旧写盘端（WidgetPluginStore.Save 序列化 WidgetManifest）是 PascalCase 键
-                                //   （"Name"/"System"…）。默认 Deserialize 大小写敏感 → 小写键全部匹配失败 →
-                                //   system/kind 恒空 → 内置模板不被跳过、面板功能被当小组件编译（13 标签布局
-                                //   循环卡死 + 激活 2.9s 冷编译）。必须大小写不敏感，兼容两种格式。
+                                // ★★★ 必须大小写不敏感：manifest 有两个写盘端、键风格不同 ——
+                                //   BuiltinTemplateSeeder / SaveNodeToFolder 用小写 Dictionary 键（"name"/"system"/"kind"…），
+                                //   WidgetPluginStore.Save 序列化 WidgetManifest 则是 PascalCase（"Name"/"System"…）。
+                                //   默认反序列化大小写敏感 → 小写键全部匹配失败 → system/kind 恒空 →
+                                //   内置模板不被跳过、面板功能被当小组件编译（13 标签布局循环卡死 + 激活 2.9s 冷编译）。
                                 var m = JsonSerializer.Deserialize<WidgetManifest>(File.ReadAllText(mf),
                                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
                                 if (m != null)
@@ -300,28 +611,47 @@ namespace ShoreHue.UI.Widgets.Dynamic
                                     kind = m.Kind ?? "";
                                 }
                             }
-                            // ★ 跳过 ShoreHue 内置副本（system 标记）：只作文件夹展示，不当作可安装/可删除的小组件
-                            //   （内置功能由代码类提供，文件夹副本是给用户看的镜像）
-                            if (isSystem) continue;
+                            // ★ 内置副本（system 标记）默认只作文件夹展示、不当可安装/可删除的小组件；
+                            //   但**已迁移**的 id（小组件 MigratedBuiltinIds / 面板 MigratedPanelIds）要真正加载 ——
+                            //   那才是"文件夹里那份在跑"。
+                            if (isSystem && !MigratedBuiltinIds.Contains(id) && !MigratedPanelIds.Contains(id)) continue;
                             // ★ 信任判定：manifest 显式标记优先；内置副本/无标记的本地文件默认信任
                             //   （本地编程不检测；内置模板构建时已验证，且面板功能合理使用 Process.Start/FileInfo 等
-                            //   被黑名单覆盖的 API——无条件沙箱会把它们全拦掉，见 2026-08 误杀回归）
-                            bool trusted = trustedFromManifest ?? true;
+                            //   被黑名单覆盖的 API——无条件过沙箱会把内置功能全拦掉，已实测误杀过一次）
+                            // ★★ v2 信任模型：**只认用户在宿主里的显式信任记录**（id + 内容哈希）。
+                            //   · manifest 自述（trustedSource / official / author）不再构成信任依据 —— 那是"包自己发免检牌"；
+                            //   · 内容一变，哈希对不上 → 信任自动失效（防"先信任干净版、再偷换恶意版"）；
+                            //   · 应用自己新建/保存的海床项会在保存时写入信任记录（SaveNodeToFolder）；
+                            //   · 其余（市场拾贝、导入包、手动丢文件夹）默认不可信，走沙箱；用户可在界面点"信任"。
+                            // ★ 信任判定（v2 修正版，回归海床初衷）：
+                            //   · 用户显式点过"改用沙箱" → 不可信；
+                            //   · 宿主写的来源标记 / 宿主写的 trustedSource:false / 用户点过"信任"的哈希 → 见 ComputeTrust；
+                            //   · 其余（你自己或 AI 写进文件夹的代码）→ **受信，零摩擦**（文件夹即真相源）。
+                            string contentHash = ContentHash(source, xaml, xamlCs);
+                            bool trusted = ComputeTrust(HasOriginMarker(dir), trustedFromManifest,
+                                                        IsExplicitlySandboxed(id), IsTrustedById(id, contentHash));
                             list.Add(new WidgetPlugin
                             {
                                 Id = id, Name = name, Author = author, Description = desc,
                                 Permissions = perms, Group = group, Source = source,
                                 Xaml = xaml, XamlCs = xamlCs,
-                                TrustedSource = trusted, Kind = kind
+                                TrustedSource = trusted, Kind = kind, IsBuiltin = isSystem
                             });
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            // 单目录读取失败 → 该小组件本轮不出现；不留痕的话用户只看到"我的小组件不见了"
+                            LogManager.Warning($"[插件] 读取小组件目录失败（已跳过）{dir}：{ex.Message}");
+                        }
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[插件] 扫描海床目录失败（本次列表可能不完整）：{ex.Message}", ex);
+            }
             _cache = list.OrderBy(p => p.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
-            ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[插件] Installed {_cache.Count} 个: " + string.Join(",", _cache.Select(p => p.Id + "(" + (p.Kind ?? "?") + ")")));
+            LogManager.Debug($"[插件] Installed {_cache.Count} 个: " + string.Join(",", _cache.Select(p => p.Id + "(" + (p.Kind ?? "?") + ")")));
         }
 
         public static WidgetPlugin? GetById(string id) => Installed.FirstOrDefault(p => p.Id == id);
@@ -348,6 +678,8 @@ namespace ShoreHue.UI.Widgets.Dynamic
         public static void ReloadStatusProviders()
         {
             var map = new Dictionary<string, IStatusProvider>();
+            // ★ 安全模式：不加载任何状态栏插件
+            if (PluginRuntimeGuard.SafeMode) { _statusProviders = map; LogManager.Debug("[守卫] 安全模式：跳过状态栏插件"); return; }
             try
             {
                 foreach (var plugin in Installed)
@@ -358,27 +690,33 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     else if (kind.Length > 0) continue;
                     else if (plugin.Group != "状态栏") continue;
                     // ★ 沙箱只对市场来源（TrustedSource=false）执行（与小组件一致）
+                    //   状态栏插件只有 main.cs 一种形态：闸门文本 == 编译文本
                     if (!plugin.TrustedSource)
                     {
-                        string sandboxErr = WidgetCompiler.SandboxErrors(plugin.Source);
+                        string sandboxErr = WidgetCompiler.SandboxErrors(plugin.Source, "");
                         if (sandboxErr.Length > 0)
                         {
-                            ShoreHue.Core.Infrastructure.Logging.LogManager.Warning(
+                            LogManager.Warning(
                                 $"状态栏插件 [{plugin.Id}] 被沙箱拦截: {sandboxErr}");
                             continue;
                         }
                     }
                     // ★ id 前缀 status_ 隔离编译缓存，避免与小组件 Widget_ 同名程序集冲突
                     string cacheId = "status_" + plugin.Id;
+                    // ★ 运行时守卫：已熔断的插件不再加载
+                    if (PluginRuntimeGuard.IsDisabled(cacheId)) { LogManager.Debug($"[守卫] 状态栏插件 {plugin.Id} 已停用，跳过"); continue; }
                     var (provider, err) = WidgetCompiler.Compile<IStatusProvider>(cacheId, plugin.Source);
-                    if (provider != null) map[cacheId] = provider;
-                    else ShoreHue.Core.Infrastructure.Logging.LogManager.Warning(
+                    if (provider != null) { map[cacheId] = provider; PluginRuntimeGuard.RegisterAssembly(provider.GetType().Assembly, cacheId); }
+                    else LogManager.Warning(
                         $"状态栏插件 [{plugin.Id}] 编译失败: {err}");
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[插件] 扫描状态栏插件失败（本次仅 {map.Count} 个可用）：{ex.Message}", ex);
+            }
             _statusProviders = map;
-            ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[插件] 状态栏编译成功 {map.Count} 个: " + string.Join(",", map.Keys));
+            LogManager.Debug($"[插件] 状态栏编译成功 {map.Count} 个: " + string.Join(",", map.Keys));
         }
 
         // ============================================================
@@ -403,6 +741,8 @@ namespace ShoreHue.UI.Widgets.Dynamic
         public static void ReloadAnimations()
         {
             var map = new Dictionary<string, IAnimation>();
+            // ★ 安全模式：不加载任何自定义动画（内置动画照常）
+            if (PluginRuntimeGuard.SafeMode) { _animations = map; ShoreHue.Animation.AnimationRegistry.ReplaceAll(map); LogManager.Debug("[守卫] 安全模式：跳过自定义动画"); return; }
             try
             {
                 foreach (var plugin in Installed)
@@ -411,12 +751,14 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     if (kind == "Animation") { }
                     else if (kind.Length > 0) continue;
                     else if (plugin.Group != "动画") continue;
+                    if (PluginRuntimeGuard.IsDisabled(plugin.Id)) continue;   // ★ 运行时守卫：已熔断的动画不再加载
+                    // 动画插件只有 main.cs 一种形态：闸门文本 == 编译文本
                     if (!plugin.TrustedSource)
                     {
-                        string sandboxErr = WidgetCompiler.SandboxErrors(plugin.Source);
+                        string sandboxErr = WidgetCompiler.SandboxErrors(plugin.Source, "");
                         if (sandboxErr.Length > 0)
                         {
-                            ShoreHue.Core.Infrastructure.Logging.LogManager.Warning(
+                            LogManager.Warning(
                                 $"动画插件 [{plugin.Id}] 被沙箱拦截: {sandboxErr}");
                             continue;
                         }
@@ -425,19 +767,22 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     var (anim, err) = WidgetCompiler.Compile<IAnimation>(cacheId, plugin.Source);
                     if (anim == null)
                     {
-                        ShoreHue.Core.Infrastructure.Logging.LogManager.Warning(
+                        LogManager.Warning(
                             $"动画插件 [{plugin.Id}] 编译失败: {err}");
                         continue;
                     }
                     // ★ 注册表/设置存储都用动画实例的 Id（缺省回退文件夹 id）——GetResolvedShowAnimationType
                     //   返回的就是这个 Id，ShapeAnimator 据此查表；Name 用于设置页 ComboBox 展示。
                     string key = string.IsNullOrEmpty(anim.Id) ? plugin.Id : anim.Id;
-                    if (!map.ContainsKey(key)) map[key] = anim;
+                    if (!map.ContainsKey(key)) { map[key] = anim; PluginRuntimeGuard.RegisterAssembly(anim.GetType().Assembly, plugin.Id); }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[插件] 扫描动画插件失败（本次仅 {map.Count} 个可用）：{ex.Message}", ex);
+            }
             _animations = map;
-            ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[插件] 动画编译成功 {map.Count} 个: " + string.Join(",", map.Keys));
+            LogManager.Debug($"[插件] 动画编译成功 {map.Count} 个: " + string.Join(",", map.Keys));
             // ★ 注册表与缓存同源：ShapeAnimator 只依赖 AnimationRegistry（动画命名空间），
             //   不反向依赖 UI 层，避免分层耦合。
             ShoreHue.Animation.AnimationRegistry.ReplaceAll(map);
@@ -476,10 +821,9 @@ namespace ShoreHue.UI.Widgets.Dynamic
                 // ★ 应用自身写盘：暂停 watcher，避免写文件触发事件链（watcher 只响应**用户**的增删）
                 WithWatcherSuspended(() =>
                 {
-                    // ★ 写入代码目录（小组件 → 面板/小组件；面板功能 → 面板/面板功能；其余按分组名）
+                    // ★ 写入面板目录（扁平化后只有一层：小组件/面板功能 → 面板/<id>；其余按分组名）
                     string group = string.IsNullOrEmpty(plugin.Group) ? "小组件" : plugin.Group;
-                    string groupPath = group == "小组件" ? WidgetsCodeDir
-                        : group == "面板功能" ? PanelsCodeDir
+                    string groupPath = group is "小组件" or "面板功能" ? PanelsDir
                         : Path.Combine(RootDir, group);
                     Directory.CreateDirectory(groupPath);
                     string dir = Path.Combine(groupPath, plugin.Id);
@@ -500,6 +844,7 @@ namespace ShoreHue.UI.Widgets.Dynamic
             }
             catch (Exception ex)
             {
+                LogManager.Error($"[插件] 保存 [{plugin.Id}] 失败：{ex.Message}", ex);
                 return "保存失败：" + ex.Message;
             }
         }
@@ -528,12 +873,17 @@ namespace ShoreHue.UI.Widgets.Dynamic
                 {
                     // ★ 清编译缓存，释放 widget 实例与程序集引用
                     WidgetCompiler.Evict(id);
+                    ClearLoadIssue(id);   // 插件没了，它上一次的加载问题也别再挂着
                     Reload();
                     Changed?.Invoke();
                     return true;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 返回 false 由调用方在界面上提示"删除失败"（文件被占用时最常见）
+                LogManager.Error($"[插件] 删除 [{id}] 失败：{ex.Message}", ex);
+            }
             return false;
         }
 
@@ -549,8 +899,11 @@ namespace ShoreHue.UI.Widgets.Dynamic
                 string d = Path.Combine(RootDir, g);
                 if (!Directory.Exists(d)) Directory.CreateDirectory(d);
             }
-            if (!Directory.Exists(WidgetsCodeDir)) Directory.CreateDirectory(WidgetsCodeDir);
-            if (!Directory.Exists(PanelsCodeDir)) Directory.CreateDirectory(PanelsCodeDir);
+            if (!Directory.Exists(PanelsDir)) Directory.CreateDirectory(PanelsDir);
+            // ★ 扁平化（一次性、幂等）：把 面板/小组件/<id> 与 面板/面板功能/<id> 上提到 面板/<id>。
+            //   只移动不删除、目标已存在则跳过、失败不阻塞启动（旧路径仍会被扫描）。
+            //   见 docs\方案-海床目录扁平化.md 与 SeabedPanelLayout。
+            ShoreHue.UI.Seabed.SeabedPanelLayout.Flatten(RootDir);
         }
 
         /// <summary>布局迁移（一次）：把历史顶层代码目录 小组件/、面板功能/ 整体挪到 面板/ 下（目标存在则不重复移动）。</summary>
@@ -561,7 +914,10 @@ namespace ShoreHue.UI.Widgets.Dynamic
                 MoveDirInto(RootDir, "小组件", WidgetsCodeDir);
                 MoveDirInto(RootDir, "面板功能", PanelsCodeDir);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[插件] 旧分组布局迁移失败（部分插件可能仍落在旧目录）：{ex.Message}");
+            }
         }
 
         private static void MoveDirInto(string root, string name, string targetDir)
@@ -584,7 +940,11 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     if (Directory.Exists(item)) Directory.Move(item, dest);
                     else File.Move(item, dest);
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 单项失败只影响这一个条目（其余继续并入）；冲突条目留在原目录，下次启动重试
+                    LogManager.Warning($"[插件] 迁移旧布局条目失败 {item}：{ex.Message}");
+                }
             }
             // 源里所有条目都已在目标存在（旧布局残留副本）→ 整体删除；否则保留真正冲突的条目
             bool allMoved = Directory.EnumerateFileSystemEntries(src)
@@ -592,7 +952,9 @@ namespace ShoreHue.UI.Widgets.Dynamic
                           || File.Exists(Path.Combine(targetDir, Path.GetFileName(item))));
             if (allMoved)
             {
-                try { Directory.Delete(src, true); } catch { }
+                // 尽力而为：残留副本删不掉不影响功能（条目已并入目标目录，下次启动会再试一次）
+                try { Directory.Delete(src, true); }
+                catch (Exception ex) { LogManager.Debug($"[插件] 清理旧布局残留目录失败（无害）{src}：{ex.Message}"); }
             }
         }
 
@@ -604,21 +966,31 @@ namespace ShoreHue.UI.Widgets.Dynamic
             string id = SanitizeId(fileName);
             if (id.Length < 2) return;
             string targetDir = Path.Combine(groupDir, id);
-            if (Directory.Exists(targetDir)) { File.Delete(csFile); return; }   // 已存在同名目录 → 清理重复文件
+            if (Directory.Exists(targetDir))
+            {
+                // ★ 不要删用户的文件：以前这里直接 File.Delete(csFile)（注释写"清理重复文件"），
+                //   而本方法由 ReloadCore 对 seabed 下每个分组目录、**每次 Reload/watcher 事件**都会跑 ——
+                //   用户在 `foo/` 旁边放了一个 `foo.cs`（很自然：想试单个文件形态），
+                //   文件会在下次刷新时被**无提示、不进回收站**地删掉。
+                //   改为保留文件并把冲突写进加载问题（界面可见），由用户自己决定怎么处理。
+                SetLoadIssue(id, $"同名冲突：目录 {id}/ 与文件 {Path.GetFileName(csFile)} 同时存在，已保留文件未处理");
+                LogManager.Warning($"[插件] 同名冲突（已保留文件，未自动删除）：目录 {targetDir} 与 {csFile}");
+                return;
+            }
             Directory.CreateDirectory(targetDir);
             File.Move(csFile, Path.Combine(targetDir, "main.cs"));
         }
 
-        /// <summary>把 .dbp 包解包为 &lt;id&gt;/ 目录（manifest + main.cs + config），然后删除 .dbp。</summary>
-        private static void NormalizeDbp(string dbpFile, string groupDir)
+        /// <summary>把预设包（.shpkg，兼容旧 .dbp）解包为 &lt;id&gt;/ 目录（manifest + main.cs + config），然后删除包文件。</summary>
+        private static void NormalizePackageArchive(string archiveFile, string groupDir)
         {
-            string fileName = Path.GetFileNameWithoutExtension(dbpFile);
+            string fileName = Path.GetFileNameWithoutExtension(archiveFile);
             string id = SanitizeId(fileName);
             if (id.Length < 2) return;
             string targetDir = Path.Combine(groupDir, id);
-            if (Directory.Exists(targetDir)) { File.Delete(dbpFile); return; }   // 已解包过 → 清理
+            if (Directory.Exists(targetDir)) { File.Delete(archiveFile); return; }   // 已解包过 → 清理
             Directory.CreateDirectory(targetDir);
-            using (var zip = System.IO.Compression.ZipFile.OpenRead(dbpFile))
+            using (var zip = System.IO.Compression.ZipFile.OpenRead(archiveFile))
             {
                 foreach (var entry in zip.Entries)
                 {
@@ -630,7 +1002,16 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     src.CopyTo(dst);
                 }
             }
-            File.Delete(dbpFile);
+            // ★ 来源标记：宿主解包出来的包 = 外来代码 → 走沙箱（包内自述无法把自己变成"本地"）
+            //   fail-closed：标记写不上就**不能**留下解包结果 —— 没有标记的目录会被信任判定当成
+            //   "本地代码"直接放行；此时保留原包文件（用户看得见包还在），下次扫描重试，原因在日志里。
+            if (!WriteOriginMarker(targetDir, "package"))
+            {
+                try { Directory.Delete(targetDir, true); }
+                catch (Exception ex) { LogManager.Error($"[插件] 回滚未标记的解包目录失败 {targetDir}：{ex.Message}", ex); }
+                return;
+            }
+            File.Delete(archiveFile);
         }
 
         /// <summary>文件名 → 合法 id（英文/数字/下划线/连字符）。</summary>
@@ -649,46 +1030,69 @@ namespace ShoreHue.UI.Widgets.Dynamic
         /// 把海床树的节点落盘到文件夹（用户保存/创建时调用）：
         /// 路径 = seabed/&lt;树路径链&gt;/&lt;节点名&gt;/（与海床树一级/二级/三级结构一致），内含 manifest.json + 内容文件。
         /// manifest.json 是树↔文件夹的桥梁：文件夹里的文件被 ShoreHue 扫描时靠它还原节点。
+        /// 返回错误信息（空串 = 成功）：调用方紧接着会显示"已保存/已更新"，吞掉失败等于界面谎报成功。
         /// </summary>
-        public static void SaveNodeToFolder(ShoreHue.Core.Models.CustomPanelDefinition cp)
+        public static string SaveNodeToFolder(ShoreHue.Core.Models.CustomPanelDefinition cp)
         {
+            string err = "";
             try
             {
                 // ★ 应用自身写盘：暂停 watcher（应用保存已显式 Reload+Changed，watcher 只响应**用户**的增删）
-                WithWatcherSuspended(() => SaveNodeToFolderCore(cp));
+                WithWatcherSuspended(() => err = SaveNodeToFolderCore(cp));
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 兜底：写盘包装本身失败（内核自带 try，正常走不到这里），同样按对外契约返回错误
+                LogManager.Error($"[插件] 保存节点到文件夹失败（{cp?.Name}）：{ex.Message}", ex);
+                return "写入文件夹失败：" + ex.Message;
+            }
+            return err;
         }
 
-        private static void SaveNodeToFolderCore(ShoreHue.Core.Models.CustomPanelDefinition cp)
+        /// <summary>节点在 seabed 里的真实目录 —— **唯一真相源**。
+        /// ★ 与主落盘（SaveNodeToFolderCore 的树路径链）共用同一套算法。此前 WriteExtraFiles / LoadNodeXaml
+        ///   各自用「分类 + 显示名」另算一份路径，于是同一个市场包被拆到两个目录：
+        ///   main.cs/manifest.json → 面板/小组件/&lt;名字&gt;/；.xaml/.xaml.cs → 面板/&lt;名字&gt;/。
+        ///   而后者没有 manifest.json，加载端又要求「文件名 = 目录名」——
+        ///   于是 XAML 形态要么被静默跳过（装包是残的：只剩那份从不加载的 main.cs），
+        ///   要么（文件名恰好等于目录名时）被当成「用户手写放进文件夹的代码」而**免沙箱**加载
+        ///   （ComputeTrust 对"无来源标记 + manifest 未写 trustedSource:false"返回 true）。
+        /// </summary>
+        private static string NodeDirFor(ShoreHue.Core.Models.CustomPanelDefinition cp)
+        {
+            // ★ 树路径 = 文件夹路径：按 ParentKey 找到父节点在树里的完整路径链（一级/二级/三级）
+            var pathChain = ShoreHue.UI.Seabed.ConfigTreeBuilder.FindPathNames(cp.ParentKey ?? "");
+            var parts = new System.Collections.Generic.List<string>();
+            if (pathChain.Count > 0)
+            {
+                // 树路径链直接作为文件夹层级（如 面板/小组件/节点名）
+                foreach (var seg in pathChain) parts.Add(SanitizeId(seg));
+            }
+            else
+            {
+                // 兜底：按一级分类映射（节点无内置父链时）
+                parts.Add(MapCategoryToFolder(cp.Category));
+            }
+            parts.Add(SanitizeId(cp.Name));
+            string current = RootDir;
+            foreach (var seg in parts) current = Path.Combine(current, seg);
+            return current;
+        }
+
+        /// <summary>落盘的实现体：成功返回空串，失败返回界面可直接显示的错误信息。</summary>
+        private static string SaveNodeToFolderCore(ShoreHue.Core.Models.CustomPanelDefinition cp)
         {
             try
             {
                 EnsureSkeleton();
-                // ★ 树路径 = 文件夹路径：按 ParentKey 找到父节点在树里的完整路径链（一级/二级/三级）
-                string nodeDir;
-                var pathChain = ShoreHue.UI.Seabed.ConfigTreeBuilder.FindPathNames(cp.ParentKey ?? "");
-                var parts = new System.Collections.Generic.List<string>();
-                if (pathChain.Count > 0)
-                {
-                    // 树路径链直接作为文件夹层级（如 面板设计/面板尺寸/节点名）
-                    foreach (var seg in pathChain) parts.Add(SanitizeId(seg));
-                }
-                else
-                {
-                    // 兜底：按一级分类映射（节点无内置父链时）
-                    parts.Add(MapCategoryToFolder(cp.Category));
-                }
                 string safeName = SanitizeId(cp.Name);
-                if (safeName.Length < 2) return;
-                parts.Add(safeName);
-                string current = RootDir;
-                foreach (var seg in parts)
-                {
-                    current = Path.Combine(current, seg);
-                    Directory.CreateDirectory(current);
-                }
-                nodeDir = current;
+                // ★ 必须返回**错误串**而不是空串：所有调用方都把 "" 当成功
+                //   （界面会提示"已保存单预设/文件已写入"），于是名字过短或全是符号时
+                //   用户以为存上了，实际什么都没落盘（只剩 CustomPanels 里那条内存记录）。
+                if (safeName.Length < 2)
+                    return $"名称「{cp.Name}」至少需要 2 个有效字符（字母/数字/_/-），请改名后重试";
+                string nodeDir = NodeDirFor(cp);
+                Directory.CreateDirectory(nodeDir);
 
                 // manifest.json：完整记录节点元信息（树↔文件夹还原依据）
                 var manifest = new Dictionary<string, object?>
@@ -702,7 +1106,10 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     ["sourceKey"] = cp.SourceKey ?? "",
                     ["createdAt"] = cp.CreatedAt ?? "",
                     ["permissions"] = WidgetPermissions.Detect(cp.Source ?? ""),
-                    ["trustedSource"] = cp.TrustedSource
+                    ["trustedSource"] = cp.TrustedSource,
+                    // ★ 这个本地面板对应市场里的哪个包（发布成功后回写）。没有它，更新同一个包时
+                    //   用户得手打「登录名/短名」，很容易打错成新包或撞上别人的 ID。
+                    ["marketId"] = cp.MarketId ?? ""
                 };
                 File.WriteAllText(Path.Combine(nodeDir, "manifest.json"),
                     JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }));
@@ -716,33 +1123,82 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     File.WriteAllText(Path.Combine(nodeDir, safeName + ".xaml.cs"), cp.XamlCs);
                 if (!string.IsNullOrEmpty(cp.ConfigJson) && cp.ConfigJson != "{}")
                     File.WriteAllText(Path.Combine(nodeDir, "config.json"), cp.ConfigJson);
+
+                // ★ 安全 v2：只有"可信"的节点（用户在海床里新建/编辑保存的）才登记信任记录；
+                //   市场拾贝/导入的节点（TrustedSource=false）不登记 → 加载时走沙箱。
+                if (cp.TrustedSource) RegisterNodeTrust(cp);
+                return "";
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 用户点了"保存"却没落盘 → 必须把错误带回界面（附带回退：内存里的节点仍在，只是文件没写）
+                LogManager.Error($"[插件] 保存节点到文件夹失败（{cp?.Name}）：{ex.Message}", ex);
+                return "写入文件夹失败：" + ex.Message;
+            }
+        }
+
+        /// <summary>登记节点信任（id + 内容哈希）。失败只降级、不丢数据：节点文件已落盘，
+        /// 只是下次加载会被当成外来代码过沙箱 —— 必须留痕，否则用户以为"我保存过就该受信"。</summary>
+        private static void RegisterNodeTrust(ShoreHue.Core.Models.CustomPanelDefinition cp)
+        {
+            try
+            {
+                var s = ServiceManager.Instance.GetService<SettingsManager>() as IPluginTrustStore;
+                if (s == null)
+                {
+                    LogManager.Warning($"[插件] 设置服务不可用，节点 [{cp.Id}] 未登记信任（下次加载按外来代码过沙箱）");
+                    return;
+                }
+                s.SetPluginTrusted(cp.Id, ContentHash(cp.Source, cp.Xaml, cp.XamlCs));
+            }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[插件] 登记节点 [{cp.Id}] 信任失败（下次加载按外来代码过沙箱）：{ex.Message}", ex);
+            }
         }
 
         /// <summary>
         /// 向已保存节点的海床文件夹写入附加文件（多形态：.xaml / .xaml.cs 等）。
-        /// 目录按 分类/节点名 定位；找不到节点目录时静默跳过（仅附加文件，不影响主功能）。
+        /// 目录按 分类/节点名 定位；返回错误信息（空串 = 成功）。
+        /// 附加文件缺失会让 XAML 形态的包退化成"只有 main.cs"，所以调用方必须把失败说出来。
         /// </summary>
-        public static void WriteExtraFiles(ShoreHue.Core.Models.CustomPanelDefinition cp,
+        public static string WriteExtraFiles(ShoreHue.Core.Models.CustomPanelDefinition cp,
             System.Collections.Generic.List<ShoreHue.UI.Seabed.GitHubMarketService.PackageFile> files)
         {
             try
             {
-                if (files == null || files.Count == 0) return;
-                string group = MapCategoryToFolder(cp.Category);
-                string safeName = SanitizeId(cp.Name);
-                string dir = Path.Combine(RootDir, group, safeName);
-                if (!Directory.Exists(dir)) return;
+                if (files == null || files.Count == 0) return "";
+                // ★ 与主落盘共用同一个「节点目录」算法（NodeDirFor）——以前这里另算一份路径，
+                //   导致 main.cs/manifest.json 与 .xaml/.xaml.cs 被拆到两个目录（见 NodeDirFor 注释）。
+                string dir = NodeDirFor(cp);
+                if (!Directory.Exists(dir))
+                {
+                    // ★ 节点还没落盘 → 附加文件无处可写（调用方应先 SaveNodeToFolder）。留痕但不上报界面：
+                    //   该包会退化成纯 main.cs 形态，用户看不到差异。
+                    LogManager.Warning($"[插件] 附加文件未写入：节点文件夹不存在 {dir}");
+                    return "";
+                }
                 foreach (var f in files)
                 {
                     if (string.IsNullOrWhiteSpace(f.Name) || string.IsNullOrWhiteSpace(f.Content)) continue;
                     string fname = Path.GetFileName(f.Name);
                     if (string.IsNullOrEmpty(fname)) continue;
+                    // ★ 附加文件不得改写 manifest.json：它是信任判定的输入（system / trustedSource），
+                    //   外来包借它就能把自己洗成内置件、或洗掉"外来"标记。manifest 只由宿主自己写。
+                    if (string.Equals(fname, "manifest.json", StringComparison.OrdinalIgnoreCase))
+                    {
+                        LogManager.Warning($"[插件] 附加文件试图覆盖 manifest.json，已忽略（{cp.Name}）");
+                        continue;
+                    }
                     WithWatcherSuspended(() => File.WriteAllText(Path.Combine(dir, fname), f.Content));
                 }
+                return "";
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[插件] 写入附加文件失败（{cp?.Name}）：{ex.Message}", ex);
+                return "写入附加文件失败：" + ex.Message;
+            }
         }
 
         /// <summary>
@@ -753,10 +1209,11 @@ namespace ShoreHue.UI.Widgets.Dynamic
         {
             try
             {
-                string group = MapCategoryToFolder(cp.Category);
-                string safeName = SanitizeId(cp.Name);
-                string dir = Path.Combine(RootDir, group, safeName);
+                // ★ 与主落盘共用同一个「节点目录」算法（NodeDirFor）。此前这里也另算一份路径，
+                //   与 SaveNodeToFolderCore 不一致 → 读不到刚写进另一个目录的 XAML 形态。
+                string dir = NodeDirFor(cp);
                 if (!Directory.Exists(dir)) return ("", "");
+                string safeName = SanitizeId(cp.Name);
                 string x = "", xc = "";
                 string xf = Path.Combine(dir, safeName + ".xaml");
                 string xcf = Path.Combine(dir, safeName + ".xaml.cs");
@@ -764,7 +1221,12 @@ namespace ShoreHue.UI.Widgets.Dynamic
                 if (File.Exists(xcf)) xc = File.ReadAllText(xcf);
                 return (x, xc);
             }
-            catch { return ("", ""); }
+            catch (Exception ex)
+            {
+                // 读不到 XAML 形态 → 节点可能被当成"纯 main.cs"编译（形态决定走哪条编译闸门），必须留痕
+                LogManager.Warning($"[插件] 读取节点 XAML 形态失败（{cp?.Name}）：{ex.Message}");
+                return ("", "");
+            }
         }
 
         /// <summary>按 manifest.json 的 id 查找节点文件夹（跨分组）。找不到返回 null。</summary>
@@ -785,10 +1247,16 @@ namespace ShoreHue.UI.Widgets.Dynamic
                             idEl.GetString() == customId)
                             return dir;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        LogManager.Warning($"[插件] 解析 manifest 失败（该目录已跳过）{mf}：{ex.Message}");
+                    }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[插件] 按 id 查找节点目录失败（{customId}）：{ex.Message}", ex);
+            }
             return null;
         }
 
@@ -813,10 +1281,16 @@ namespace ShoreHue.UI.Widgets.Dynamic
                             return;
                         }
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        LogManager.Warning($"[插件] 解析 manifest 失败（该目录已跳过）{mf}：{ex.Message}");
+                    }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Error($"[插件] 删除节点文件夹失败（{customId}）：{ex.Message}", ex);
+            }
         }
 
         /// <summary>一级分类 → 分组文件夹名（设置页签分类；保留旧分类名映射以兼容存量数据）。</summary>
@@ -824,8 +1298,9 @@ namespace ShoreHue.UI.Widgets.Dynamic
         {
             switch (category)
             {
-                case "小组件": return "面板/小组件";
-                case "面板功能": return "面板/面板功能";
+                // ★ 扁平化后：面板全部落在 面板/ 这一层，不再分「小组件 / 面板功能」
+                case "小组件": return "面板";
+                case "面板功能": return "面板";
                 // 设置页签分组
                 case "常规": return "常规";
                 case "区域": return "区域";
@@ -843,7 +1318,7 @@ namespace ShoreHue.UI.Widgets.Dynamic
         /// <summary>在系统文件管理器中打开指定节点的文件夹（按 manifest.id 匹配，跨分组查找；找不到回退根目录）。</summary>
         public static void OpenNodeFolder(string customId, string name, string category)
         {
-            var log = ShoreHue.Core.Infrastructure.Logging.LogManager.Debug;
+            var log = LogManager.Debug;
             log($"[OpenFolder] 调用 customId={customId} name={name} category={category} RootDir={RootDir}");
             try
             {
@@ -867,7 +1342,10 @@ namespace ShoreHue.UI.Widgets.Dynamic
                                 return;
                             }
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            LogManager.Warning($"[插件] 解析 manifest 失败（该目录已跳过）{mf}：{ex.Message}");
+                        }
                     }
                 }
                 // ② 回退：按 分组/节点名 定位
@@ -892,7 +1370,11 @@ namespace ShoreHue.UI.Widgets.Dynamic
                 log("[OpenFolder] ③未命中，兜底打开根目录");
                 OpenFolder();
             }
-            catch (Exception ex) { log("[OpenFolder] 异常: " + ex); }
+            catch (Exception ex)
+            {
+                // 用户点了"打开文件夹"却没反应：Debug 级追踪不够，按关键路径留 Warning
+                LogManager.Warning($"[插件] 打开节点文件夹失败：{ex}");
+            }
         }
 
         /// <summary>在系统文件管理器中打开小组件根目录（用户可直接增删/拖文件）。</summary>
@@ -903,7 +1385,10 @@ namespace ShoreHue.UI.Widgets.Dynamic
                 EnsureSkeleton();
                 OpenFolderInExplorer(RootDir);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[插件] 打开海床根目录失败：{ex.Message}");
+            }
         }
 
         /// <summary>用 explorer.exe 显式打开文件夹（比 UseShellExecute 直接给目录更可靠，点击必生效）。</summary>
@@ -919,7 +1404,11 @@ namespace ShoreHue.UI.Widgets.Dynamic
                     UseShellExecute = true
                 });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 打不开 = 用户点了没反应，日志是唯一线索
+                LogManager.Warning($"[插件] 无法用资源管理器打开 {path}：{ex.Message}");
+            }
         }
 
         private class WidgetManifest

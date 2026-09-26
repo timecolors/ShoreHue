@@ -102,7 +102,7 @@ namespace ShoreHue.UI.Settings
         {
             try
             {
-                if (string.IsNullOrEmpty(hex)) return System.Drawing.Color.FromArgb(255, 255, 255, 153);
+                if (string.IsNullOrEmpty(hex)) return System.Drawing.Color.FromArgb(255, 0, 0, 0);
                 if (hex.StartsWith("#")) hex = hex.Substring(1);
                 byte a = 255, r = 0, g = 0, b = 0;
                 if (hex.Length == 6)
@@ -118,10 +118,10 @@ namespace ShoreHue.UI.Settings
                     g = Convert.ToByte(hex.Substring(4, 2), 16);
                     b = Convert.ToByte(hex.Substring(6, 2), 16);
                 }
-                else return System.Drawing.Color.FromArgb(255, 255, 255, 153);
+                else return System.Drawing.Color.FromArgb(255, 0, 0, 0);
                 return System.Drawing.Color.FromArgb(a, r, g, b);
             }
-            catch { return System.Drawing.Color.FromArgb(255, 255, 255, 153); }
+            catch { return System.Drawing.Color.FromArgb(255, 0, 0, 0); }
         }
 
         public static string DrawingColorToHex(System.Drawing.Color color)

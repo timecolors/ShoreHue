@@ -515,34 +515,10 @@ namespace ShoreHue.UI.Widgets.Timer
 }
 ";
 
+        /// <summary>★ 走共享 UI 宿主：WPF 一个进程只能有一个 Application，
+        /// 各测试各起 STA 线程会导致"不能创建多个 Application"或窗口排不出布局。</summary>
         private static (IWidget? w, string err) RunSta()
-        {
-            (IWidget? w, string err) result = (null, "");
-            Exception? error = null;
-            var t = new Thread(() =>
-            {
-                try
-                {
-                    var app = Application.Current ?? new Application();
-                    if (app.Resources.MergedDictionaries.Count == 0)
-                        app.Resources.MergedDictionaries.Add(new ResourceDictionary
-                        { Source = new Uri("pack://application:,,,/ShoreHue;component/src/UI/Theme/Theme.xaml") });
-                    _ = typeof(ShoreHue.UI.Localization.LocalizationManager).Assembly;
-                    var (widget, err) = WidgetCompiler.CompileXaml("realtimer-full", Xaml, Cs);
-                    result = (widget, err);
-                }
-                catch (Exception ex)
-                {
-                    var sb = new System.Text.StringBuilder();
-                    for (var e = ex; e != null; e = e.InnerException) sb.AppendLine(e.GetType().Name + ": " + e.Message);
-                    result = (null, sb.ToString());
-                }
-            });
-            t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join();
-            if (error != null) result = (null, error.Message);
-            return result;
-        }
-
+            => UiTestHost.Run(() => WidgetCompiler.CompileXaml("realtimer-full", Xaml, Cs));
         [Fact]
         public void RealTimerXaml_CompileXaml_FullChain()
         {

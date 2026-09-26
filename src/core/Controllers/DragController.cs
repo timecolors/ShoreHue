@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.Core.Services.Configuration;
 
 namespace ShoreHue.Core.Controllers
@@ -125,7 +126,11 @@ namespace ShoreHue.Core.Controllers
                     _visibilityController.SetPanelLock(false);
                     _visibilityController.ForceHide();
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 拖拽收尾没隐藏/没解锁 → 面板可能停在"锁住"状态不再自动隐藏（用户可见）
+                    LogManager.Warning($"[拖拽] 拖拽收尾时隐藏面板失败（面板可能停在锁定态）：{ex.Message}");
+                }
             }), System.Windows.Threading.DispatcherPriority.Background);
         }
 
@@ -134,7 +139,8 @@ namespace ShoreHue.Core.Controllers
             _isDragging = false;
             _edgeController.IsDragging = false;
             _edgeController.NotifyDragEnded();
-            try { _visibilityController.SetPanelLock(false); } catch { }
+            try { _visibilityController.SetPanelLock(false); }
+            catch (Exception ex) { LogManager.Warning($"[拖拽] 释放面板锁定失败（面板可能不再自动隐藏）：{ex.Message}"); }
             Mouse.OverrideCursor = null;
         }
 

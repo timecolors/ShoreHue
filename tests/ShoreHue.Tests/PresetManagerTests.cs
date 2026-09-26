@@ -13,7 +13,7 @@ public class PresetManagerTests : IDisposable
 
     public PresetManagerTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "dbp_presets_" + Guid.NewGuid().ToString("N"));
+        _dir = Path.Combine(Path.GetTempPath(), "sh_presets_" + Guid.NewGuid().ToString("N"));
         PresetManager.TestPresetsDir = _dir;
     }
 

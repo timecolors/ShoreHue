@@ -1,4 +1,5 @@
 using System;
+using ShoreHue.Core.Infrastructure.Logging;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -22,6 +23,8 @@ namespace ShoreHue.Infrastructure.WinApi
         private static DateTime _locationTime = DateTime.MinValue;
         private static (string City, string Text, string Emoji)? _cached;
         private static DateTime _cacheTime = DateTime.MinValue;
+        /// <summary>上面那份缓存是针对哪个**请求键**算出来的（城市名，空串 = IP 自动定位）。</summary>
+        private static string? _cacheRequestKey;
 
         /// <summary>获取天气文本（如 “☀25° 晴”）；失败返回 null。城市留空 = IP 自动定位。</summary>
         public static async Task<(string Text, string Emoji)?> GetWeatherAsync(string city)
@@ -34,7 +37,11 @@ namespace ShoreHue.Infrastructure.WinApi
         public static async Task<(string City, string Text, string Emoji)?> GetWeatherWithCityAsync(string city)
         {
             string key = city?.Trim() ?? "";
-            if (_cached != null && (DateTime.Now - _cacheTime).TotalMinutes < 15 && _cached.Value.City == key)
+            // ★ 缓存命中判定要用**同一个键**：以前这里比较 `_cached.Value.City == key`，
+            //   而 `_cached.Value.City` 是**解析出来的城市名**（IP 定位时 key 是空串、解析结果是"保定"），
+            //   两者永远不相等 → 15 分钟缓存形同虚设，每次刷新都发两个 HTTP 请求
+            //   （一次定位、一次天气）。改为记录"这次缓存是针对哪个请求键算出来的"。
+            if (_cached != null && (DateTime.Now - _cacheTime).TotalMinutes < 15 && _cacheRequestKey == key)
                 return _cached;
 
             try
@@ -48,11 +55,14 @@ namespace ShoreHue.Infrastructure.WinApi
                 int code = cur.GetProperty("weather_code").GetInt32();
                 var (emoji, desc) = WeatherCode(code);
                 _cached = (resolvedCity, $"{emoji} {temp:F0}° {desc}", emoji);
+                _cacheRequestKey = key;
                 _cacheTime = DateTime.Now;
                 return _cached;
             }
-            catch
+            catch (Exception ex)
             {
+                // 返回 null → 状态栏/小组件显示"取不到天气"（用户可见），留痕便于判断是网络还是解析
+                LogManager.Warning($"[天气] 获取天气失败（界面将显示取不到）：{ex.Message}");
                 return null;
             }
         }
@@ -114,8 +124,10 @@ namespace ShoreHue.Infrastructure.WinApi
                 });
                 return list;
             }
-            catch
+            catch (Exception ex)
             {
+                // 城市搜索失败 → 设置页搜不到城市（返回空列表）
+                LogManager.Warning($"[天气] 搜索城市失败（列表为空）：{ex.Message}");
                 return empty;
             }
         }
@@ -176,18 +188,27 @@ namespace ShoreHue.Infrastructure.WinApi
                         var (_, _, resolved) = await GetLocationWithCityAsync("");
                         query = resolved;
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        // 尽力而为：取不到定位城市就用兜底搜索词
+                        LogManager.Debug($"[天气] 获取定位城市失败（改用默认搜索词）：{ex.Message}");
+                    }
                 }
                 if (string.IsNullOrEmpty(query)) query = "天气预报";
                 string url = "https://www.bing.com/search?q=" + Uri.EscapeDataString(query + " 天气");
                 Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 用户点了"查看天气详情"却没打开浏览器
+                LogManager.Warning($"[天气] 打开天气页面失败：{ex.Message}");
+            }
         }
 
         public static void ClearCache()
         {
             _cached = null;
+            _cacheRequestKey = null;
             _location = null;
         }
 
@@ -210,7 +231,11 @@ namespace ShoreHue.Infrastructure.WinApi
                                 resolved);
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 解析失败继续往下走 IP 定位兜底（这条路本来就是"先试再退"）
+                    LogManager.Debug($"[天气] 解析城市搜索结果失败（改用 IP 定位兜底）：{ex.Message}");
+                }
             }
 
             // IP 定位兜底（缓存坐标 1 小时）

@@ -6,6 +6,7 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using ShoreHue.Infrastructure.Utils;
 using ShoreHue.Infrastructure.WinApi;
+using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.UI.Localization;
 
 namespace ShoreHue.UI.Widgets
@@ -107,7 +108,11 @@ namespace ShoreHue.UI.Widgets
                 int h = (int)Math.Round(wa.Height * hRatio * scale);
                 WindowAction.MoveResize(hwnd, x, y, w, h);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 用户点了贴靠布局却没生效
+                LogManager.Warning($"[窗口操作] 应用贴靠布局失败：{ex.Message}");
+            }
         }
 
         [StructLayout(LayoutKind.Sequential)]

@@ -191,7 +191,58 @@ namespace ShoreHue.UI.Seabed
                     ShowStatus("已取消恢复", Colors.Gray);
                     return;
                 }
-                File.WriteAllText(ShoreHue.Infrastructure.Utils.AppPaths.ConfigPath, json);
+
+                // ★ 落盘前必须校验：云端那份是**外部数据**，可能因为版本差异/传输损坏/仓库里被改过
+                //   而根本不是合法配置。以前是 `File.WriteAllText(config, json)` 直接覆盖 ——
+                //   一份 HTML 错误页或截断的 JSON 就能把用户全部设置一次性毁掉，而且是非原子的：
+                //   连 `SettingsFileManager` 的 .bak 也会基于这个坏文件生成，回不去上一份好配置。
+                ShoreHue.Core.Services.Configuration.SettingsData? parsed;
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(json))
+                    {
+                        ShowStatus("云端内容为空，已中止恢复（本机设置未改动）", Color.FromRgb(0xD4, 0x50, 0x45));
+                        return;
+                    }
+                    parsed = System.Text.Json.JsonSerializer
+                        .Deserialize<ShoreHue.Core.Services.Configuration.SettingsData>(json);
+                }
+                catch (Exception pex)
+                {
+                    ShowStatus("云端内容不是合法配置，已中止恢复（本机设置未改动）：" + pex.Message,
+                        Color.FromRgb(0xD4, 0x50, 0x45));
+                    return;
+                }
+                if (parsed == null)
+                {
+                    ShowStatus("云端内容不是合法配置，已中止恢复（本机设置未改动）", Color.FromRgb(0xD4, 0x50, 0x45));
+                    return;
+                }
+
+                // ★ 信任表不能由云端配置注入（否则别人仓库里一条记录就能让你机器上某个外来包永久免检）
+                ShoreHue.Core.Services.Configuration.PluginTrustSanitizer.StripExternalTrust(
+                    parsed,
+                    ShoreHue.Core.Services.Configuration.PluginTrustSanitizer.ReadLocalTrust(),
+                    "云端配置");
+
+                // 恢复前留一份「恢复前」备份，出问题可以手工回退
+                try
+                {
+                    if (File.Exists(ShoreHue.Infrastructure.Utils.AppPaths.ConfigPath))
+                        File.Copy(ShoreHue.Infrastructure.Utils.AppPaths.ConfigPath,
+                                  ShoreHue.Infrastructure.Utils.AppPaths.ConfigPath + ".preRestore.bak", true);
+                }
+                catch (Exception bex)
+                {
+                    // 备份失败不阻塞恢复，但要留痕（用户事后想回退时会找这份文件）
+                    ShoreHue.Core.Infrastructure.Logging.LogManager.Warning(
+                        $"[云同步] 恢复前备份失败（不影响本次恢复）：{bex.Message}");
+                }
+
+                // ★ 走统一的原子写（临时文件 + File.Replace），不再裸 WriteAllText
+                ShoreHue.Core.Services.SettingsFileManager.Save(
+                    parsed, ShoreHue.Infrastructure.Utils.AppPaths.ConfigPath);
+
                 // 通知设置服务重新加载（由调用方执行：_page.SettingsService.Reload()）
                 Result = "download";
                 ShowStatus("已从云端恢复设置（关闭窗口后到设置页查看效果）", Color.FromRgb(0x3C, 0xA8, 0x5C));

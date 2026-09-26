@@ -167,7 +167,8 @@ namespace ShoreHue.Core.Controllers
         public (double width, double height) MeasureWidgetTargetSize()
         {
             var (cw, ch) = _sizeCalculator.MeasureContent();
-            return _sizeCalculator.CalculateTargetSize(cw, ch, "Widget");
+            return _sizeCalculator.CalculateTargetSize(cw, ch, "Widget",
+                _settings.GoldenRatio, _settings.HorizontalLayoutThreshold);
         }
 
         /// <summary>应用辅助（画中画/媒体控制）按内容实际尺寸计算目标面板尺寸（限幅 80% 屏）。</summary>
@@ -225,13 +226,17 @@ namespace ShoreHue.Core.Controllers
             }
 
             var (targetWidth, targetHeight) = _sizeCalculator.CalculateTargetSize(
-                contentWidth, contentHeight, _currentMode);
+                contentWidth, contentHeight, _currentMode,
+                _settings.GoldenRatio, _settings.HorizontalLayoutThreshold);
 
             if (targetWidth < 100) targetWidth = 100;
             if (targetHeight < 60) targetHeight = 60;
 
+            // ★ 把长宽比一起记下来：验证"接近黄金比"时不该靠截图目测，要看这两个数
+            //   （以及 ratio 是否≈φ）。真机验证脚本也读这一行。
             ShoreHue.Core.Infrastructure.Logging.LogManager.Debug(
-                $"AutoSize content={contentWidth:F0}x{contentHeight:F0} → target={targetWidth:F0}x{targetHeight:F0} mode={_currentMode}");
+                $"AutoSize content={contentWidth:F0}x{contentHeight:F0} → target={targetWidth:F0}x{targetHeight:F0}" +
+                $" ratio={(targetHeight > 0 ? targetWidth / targetHeight : 0):F2} mode={_currentMode}");
 
             var (newLeft, newTop) = _positionCalculator.CalculatePosition(
                 targetWidth, targetHeight, _currentEdge, _window.Left, _window.Top, _window.Width, _window.Height);

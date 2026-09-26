@@ -17,13 +17,10 @@ namespace ShoreHue.UI.Widgets.TextAi
     /// 自动读取选中文本并调用 AI 翻译，结果流式显示在本面板内。
     /// 纯文本请求，所有 OpenAI 兼容模型都支持。
     /// </summary>
-    public partial class TextAiWidget : UserControl, IWidget
+    public partial class TextAiWidget : UserControl, IWidget, IWidgetFooter, ITextAiWidget
     {
         private readonly AiChatClient _client = new();
         private CancellationTokenSource? _cts;
-
-        /// <summary>面板内“打开设置”按钮被点击时触发（由主窗口订阅）。</summary>
-        public static event Action? OpenSettingsRequested;
 
         public TextAiWidget()
         {
@@ -50,7 +47,8 @@ namespace ShoreHue.UI.Widgets.TextAi
 
         private void OpenSettings_Click(object sender, RoutedEventArgs e)
         {
-            OpenSettingsRequested?.Invoke();
+            // ★ 走宿主能力而不是静态事件：文件夹版的类型与 exe 版不同，静态事件收不到。
+            HostCapabilities.OpenSettingsPage("tabAI");
         }
 
         /// <summary>一键复制译文（STA/UI 线程直接 SetText）。</summary>
@@ -91,31 +89,135 @@ namespace ShoreHue.UI.Widgets.TextAi
 
             // 2. 捕获选中文本（必须在 STA/UI 线程，内部已处理剪贴板恢复）
             ShowState(LocalizationManager.Instance["TextAi_Reading"], false);
-            var capture = await SelectedTextCapture.CaptureAsync(ownHwnd: GetOwnHwnd());
-            if (!capture.Success)
+            // ★ 走窄接口 HostCapabilities：宿主划词捕获类在符号层黑名单里，外来包直接引用它会被判违规、
+            //   整包被拦。代价：这个入口只返回文本、拿不到失败原因，失败一律按「未选中」提示。
+            //   注意：连注释里都不能写那个类型名 —— 沙箱文本层会连注释一起扫。
+            string selected = await ShoreHue.UI.Widgets.HostCapabilities.CaptureSelectedTextAsync();
+            if (string.IsNullOrWhiteSpace(selected))
             {
-                ShowState(capture.Message.Length > 0
-                    ? capture.Message
-                    : LocalizationManager.Instance["TextAi_NoSelection"], true);
+                ShowState(LocalizationManager.Instance["TextAi_NoSelection"], true);
                 return;
             }
 
             // 3. 翻译
-            await TranslateAsync(capture.Text!, ai);
+            await TranslateAsync(selected, ai);
         }
 
-        private IntPtr GetOwnHwnd()
+
+        // ==================== 最近翻译历史（借鉴沉浸式翻译/翻译插件：翻过的东西能找回来） ====================
+
+        private List<string> _history = new();
+        private Button? _btnHistory;
+
+        /// <summary>把「历史」按钮加在"复制结果"旁边（代码构造，不动 XAML：受限方言里塞事件风险高）。</summary>
+        private void EnsureHistoryButton()
+        {
+            if (_btnHistory != null || BtnCopyResult?.Parent is not Panel panel) return;
+            _btnHistory = new Button
+            {
+                Content = LocalizationManager.Instance["TextAi_History"],
+                FontSize = 11,
+                Padding = new Thickness(8, 2, 8, 2),
+                Margin = new Thickness(6, 0, 0, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = LocalizationManager.Instance["TextAi_HistoryTip"]
+            };
+            _btnHistory.Click += (_, _) => ShowHistory();
+            panel.Children.Add(_btnHistory);
+            LoadHistory();
+        }
+
+        private int HistoryLimit
+            => ShoreHue.UI.Widgets.HostCapabilities.Settings?.TextAiHistoryLimit ?? 20;
+
+        private void LoadHistory()
         {
             try
             {
-                var h = new System.Windows.Interop.WindowInteropHelper(Window.GetWindow(this)).Handle;
-                return h;
+                string json = ShoreHue.UI.Widgets.HostCapabilities.Settings?.TextAiHistoryJson ?? "";
+                _history = string.IsNullOrWhiteSpace(json)
+                    ? new List<string>()
+                    : System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
             }
-            catch { return IntPtr.Zero; }
+            catch (Exception ex)
+            {
+                _history = new List<string>();
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[划词翻译] 历史读取失败（按空处理）：{ex.Message}");
+            }
         }
 
+        private void SaveHistory()
+        {
+            try
+            {
+                var s = ShoreHue.UI.Widgets.HostCapabilities.Settings;
+                if (s == null) return;
+                int limit = HistoryLimit;
+                if (limit <= 0) { s.TextAiHistoryJson = ""; return; }
+                while (_history.Count > limit) _history.RemoveAt(_history.Count - 1);
+                s.TextAiHistoryJson = System.Text.Json.JsonSerializer.Serialize(_history);
+            }
+            catch (Exception ex)
+            {
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[划词翻译] 历史保存失败：{ex.Message}");
+            }
+        }
+
+        /// <summary>记一条翻译（翻译成功时调用）。条数上限 0 = 不记录（设置里可关）。</summary>
+        public void RecordTranslation(string source, string result)
+        {
+            if (HistoryLimit <= 0)
+            {
+                // ★ 关掉就**清空**：否则用户以为"不记录了"，磁盘上还留着历史（隐私预期不符）
+                if (_history.Count > 0) { _history.Clear(); SaveHistory(); }
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(source) || string.IsNullOrWhiteSpace(result)) return;
+            string one = source.Replace("\r", " ").Replace("\n", " ").Trim();
+            if (one.Length > 40) one = one.Substring(0, 40) + "…";
+            string line = one + "  →  " + result.Trim();
+            _history.RemoveAll(x => x == line);
+            _history.Insert(0, line);
+            SaveHistory();
+        }
+
+        /// <summary>历史菜单（代码构造）：点一条即把译文放回结果区并复制。</summary>
+        public void ShowHistory()
+        {
+            var menu = new ContextMenu();
+            if (_history.Count == 0)
+            {
+                menu.Items.Add(new MenuItem { Header = LocalizationManager.Instance["TextAi_HistoryEmpty"], IsEnabled = false });
+            }
+            else
+            {
+                foreach (var line in _history)
+                {
+                    var item = new MenuItem { Header = string.IsNullOrEmpty(line) ? " " : line };
+                    item.Click += (_, _) =>
+                    {
+                        int idx = line.IndexOf("→", StringComparison.Ordinal);
+                        string result = idx >= 0 ? line.Substring(idx + 1).Trim() : line;
+                        ResultText.Text = result;
+                        CopyText(result);
+                    };
+                    menu.Items.Add(item);
+                }
+            }
+            menu.PlacementTarget = this;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
+        }
+
+        private void CopyText(string text)
+        {
+            // 同 calculator：不引用「宿主剪贴板管理器」里的条目类型（符号层黑名单）
+            if (!ShoreHue.UI.Widgets.HostCapabilities.CopyToClipboard(text))
+                System.Windows.Clipboard.SetText(text);
+        }
         private async Task TranslateAsync(string text, AiSettings ai)
         {
+            EnsureHistoryButton();
             Cancel();
             _cts = new CancellationTokenSource();
             var ct = _cts.Token;
@@ -128,9 +230,12 @@ namespace ShoreHue.UI.Widgets.TextAi
             {
                 // 判断语言方向：含较多 CJK 字符 → 译为英文；否则译为中文
                 bool chinese = CountCjk(text) >= Math.Max(3, text.Length / 6);
-                string prompt = (chinese
-                    ? "请将以下内容翻译成英文。只输出译文，不要任何解释、引号或多余文字：\n\n"
-                    : "请将以下内容翻译成中文。只输出译文，不要任何解释、引号或多余文字：\n\n") + text;
+                // ★ 目标语言可在「设置 → 面板 → 划词翻译」里指定；留空才用"自动判中英"
+                string target = ShoreHue.UI.Widgets.HostCapabilities.Settings?.TextAiTargetLanguage?.Trim() ?? "";
+                string targetClause = target.Length > 0
+                    ? "请将以下内容翻译成" + target + "。"
+                    : (chinese ? "请将以下内容翻译成英文。" : "请将以下内容翻译成中文。");
+                string prompt = targetClause + "只输出译文，不要任何解释、引号或多余文字：\n\n" + text;
 
                 // 翻译用独立 SystemPrompt，避免默认助手提示词污染译文
                 var translateSettings = new AiSettings
@@ -160,6 +265,7 @@ namespace ShoreHue.UI.Widgets.TextAi
                 {
                     ShowState(full.Length > 0 ? "" : LocalizationManager.Instance["TextAi_EmptyResult"],
                         full.Length == 0);
+                    if (full.Length > 0) RecordTranslation(text, full);   // 最近翻译（可在设置里关：条数 0）
                 }
             }
             catch (OperationCanceledException)

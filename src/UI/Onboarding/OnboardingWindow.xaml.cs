@@ -49,7 +49,7 @@ namespace ShoreHue.UI.Onboarding
             // 无论点完成/跳过/直接关闭，都视为完成引导
             Closed += (_, _) =>
             {
-                try { _onCompleted?.Invoke(chkNoMore.IsChecked ?? true); } catch { }
+                try { _onCompleted?.Invoke(chkNoMore.IsChecked ?? true); } catch { /* 引导只是说明页：回调失败不影响窗口关闭与后续使用 */ }
             };
 
             _pages = new FrameworkElement[]

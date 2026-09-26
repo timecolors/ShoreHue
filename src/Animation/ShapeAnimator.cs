@@ -142,7 +142,7 @@ namespace ShoreHue.Animation
                 _window.Background = new SolidColorBrush(Color.FromRgb(0x2D, 0x2D, 0x2D));
                 _micaSuspended = true;
             }
-            catch { }
+            catch { /* 只影响毛玻璃观感（动画照常跑） */ }
         }
 
         private void RestoreMicaBackdrop()
@@ -154,7 +154,7 @@ namespace ShoreHue.Animation
                 _window.Background = new SolidColorBrush(Color.FromArgb(0xE0, 0x2D, 0x2D, 0x2D));
                 _micaSuspended = false;
             }
-            catch { }
+            catch { /* 同上：背景换不上只影响观感 */ }
         }
 
         /// <summary>
@@ -171,7 +171,7 @@ namespace ShoreHue.Animation
                 _panel.HorizontalAlignment = HorizontalAlignment.Stretch;
                 _panel.VerticalAlignment = VerticalAlignment.Stretch;
             }
-            catch { }
+            catch { /* 归位失败最多留一点尺寸/变换残留；动画回调里不能抛（抛了会中断收尾） */ }
             RestoreMicaBackdrop();
         }
 
@@ -469,7 +469,7 @@ namespace ShoreHue.Animation
                     double? rate = presentationSource?.CompositionTarget?.TransformToDevice.M11;
                     if (rate.HasValue && rate.Value > 0) refresh = Math.Max(60, (int)Math.Round(rate.Value * 60));
                 }
-                catch { }
+                catch { /* 取不到刷新率就按 60Hz 基准算跳帧（refresh 已初始化为 60） */ }
                 skip = fps >= refresh ? 0 : Math.Max(0, (int)Math.Ceiling((double)refresh / Math.Max(1, fps)) - 1);
             }
             SetFrameSkip(skip);
@@ -764,6 +764,7 @@ namespace ShoreHue.Animation
             {
                 ShoreHue.Core.Infrastructure.Logging.LogManager.Warning(
                     "自定义动画异常，回退内置动画: " + ex.Message);
+                AnimationRegistry.ReportCustomAnimationError(ex);   // ★ 交给插件守卫熔断
                 FallbackSlideShowHide(left, top, opacity, ms);
                 return;
             }
@@ -796,7 +797,7 @@ namespace ShoreHue.Animation
         {
             foreach (var t in new List<DispatcherTimer>(_customAnimTimers))
             {
-                try { t.Stop(); } catch { }
+                try { t.Stop(); } catch { /* 停不掉最多多跑一次 Tick（Tick 内有幂等保护） */ }
             }
             _customAnimTimers.Clear();
         }

@@ -5,6 +5,7 @@
   "category": "面板功能",
   "version": "1.0.0",
   "author": "timecolors",
+  "publisherId": 176211220,
   "description": "ShoreHue 内置快捷设置：音量 / 亮度 / 蓝牙 / Wi-Fi / 省电等快速开关。",
   "baseType": "Panel",
   "parentKey": "panel-features",

@@ -82,13 +82,14 @@ namespace ShoreHue.Core.Services.Configuration
 
         // ========== 剪贴板与便签 ==========
         public int ClipboardMaxCount { get; set; } = 10;
-        public int ClipboardDisplayLength { get; set; } = 100;
+        // 剪贴板单条最多显示几行（1–20）。★ 旧语义是"最多显示多少字符"（默认 100），已废弃，见 SettingsManager
+        public int ClipboardDisplayLength { get; set; } = 4;
         // 图片缩略化：最长边超过该值（px）时缩放后保存；0 = 不缩放
         public int ClipboardImageMaxWidth { get; set; } = 1280;
         // 图片缓存总大小上限（MB）：超限时按"未收藏且最旧"优先清理缓存文件
         public int ClipboardImageCacheLimitMB { get; set; } = 50;
         public string? LastWidgetTab { get; set; } = "Clipboard";
-        public string? DefaultNoteColor { get; set; } = "#FFFF99";
+        public string? DefaultNoteColor { get; set; } = "#00000000";  // ★ 默认全透明 = 跟随面板背景（面板底色本身可配置，写死颜色早晚对不上）
         public bool NoteShowTitleByDefault { get; set; } = true;
 
         public bool UseAutoSize { get; set; } = true;
@@ -262,6 +263,14 @@ namespace ShoreHue.Core.Services.Configuration
         // ★ 网页工具（WebView2 联网）默认关闭：保持"开箱不联网"，用户主动启用后才会加载网页
         public bool WidgetEnabled_Web { get; set; } = false;
 
+        // ========== 插件信任记录（安全 v2）==========
+        /// <summary>
+        /// 插件 id → 内容哈希：**只有哈希与当前内容一致**的记录才算受信（内容一变即自动失效）。
+        /// ★ 信任只由用户在本机的显式操作产生（海床保存 / 界面点"信任"），不再由包内 manifest 自述决定
+        ///   —— official / trustedSource 自述就是旧版的"免死金牌"。
+        /// </summary>
+        public Dictionary<string, string>? TrustedPlugins { get; set; }
+
         /// <summary>用户插件小组件（Widget_&lt;id&gt;）的启用覆盖；缺省视为启用。</summary>
         public Dictionary<string, bool> WidgetPluginOverrides { get; set; } = new();
 
@@ -276,5 +285,45 @@ namespace ShoreHue.Core.Services.Configuration
         // ========== 键盘呼出区域面板（Ctrl+数字环；与浏览器切标签冲突 → 默认关，可改修饰键） ==========
         public bool RegionHotkeysEnabled { get; set; } = false;
         public string RegionHotkeyModifier { get; set; } = "Ctrl";   // Ctrl / Ctrl+Shift / Alt / Ctrl+Alt
+
+        // ========== 便签快捷键（在便签面板内生效；空 = 用默认值，见 SettingsManager） ==========
+        // ========== 划词翻译面板（设置 → 面板 → 划词翻译）==========
+        /// <summary>最近翻译保留几条（0 = 不记录）。</summary>
+        public int TextAiHistoryLimit { get; set; } = 20;
+
+        /// <summary>最近翻译（JSON）。★ 借设置落盘：小组件沙箱不允许碰文件系统。</summary>
+        public string? TextAiHistoryJson { get; set; } = "";
+
+        /// <summary>目标语言（如"英文"）；空 = 保持默认的"自动判中英"。</summary>
+        public string? TextAiTargetLanguage { get; set; } = "";
+
+        // ========== 计算器面板（设置 → 面板 → 计算器）==========
+        /// <summary>计算历史最多保留几条（0 = 不记录）。借鉴 Windows 计算器的"历史记录"。</summary>
+        public int CalculatorHistoryLimit { get; set; } = 20;
+
+        /// <summary>计算历史（JSON 字符串）。★ 小组件沙箱不允许碰文件系统，所以历史借设置落盘。</summary>
+        public string? CalculatorHistoryJson { get; set; } = "";
+
+        /// <summary>任务栏「窗口标签分组」（JSON：组 → 成员应用路径）。★ 当用户设置持久化，跨重启恢复分组。</summary>
+        public string? TaskbarGroupsJson { get; set; } = "";
+
+        // ========== 插件运行时守卫（安全模式 / 异常熔断；系统数据，不是用户配置）==========
+        /// <summary>已安全熔断停用的插件 key。连续失败达阈值后由守卫写入，用户可手动解除。</summary>
+        public List<string> CircuitBrokenPlugins { get; set; } = new();
+        /// <summary>用户请求"下次以安全模式启动"（托盘菜单写入；启动时读取并清除）。</summary>
+        public bool SafeModeRequested { get; set; }
+        /// <summary>连续"未正常退出"的次数；达到阈值启动时自动进安全模式。</summary>
+        public int UncleanExitCount { get; set; }
+
+        // ========== 剪贴板面板（设置 → 面板 → 剪贴板）==========
+        /// <summary>历史列表是否支持键盘操作（↑↓ 选择 / Enter 复制 / 数字键 1-9 快选 / Del 删除）。</summary>
+        public bool ClipboardKeyboardNav { get; set; } = true;
+
+        /// <summary>是否显示"来源应用"（这条是从哪个程序复制来的）。</summary>
+        public bool ClipboardShowSourceApp { get; set; } = true;
+
+        public string? NoteHotkeyNew { get; set; } = "";
+        public string? NoteHotkeyDelete { get; set; } = "";
+        public string? NoteHotkeyNext { get; set; } = "";
     }
 }

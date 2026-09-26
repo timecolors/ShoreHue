@@ -1,3 +1,4 @@
+using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.Core.Models;
 using ShoreHue.Core.Services.Configuration;
 using ShoreHue.UI.Widgets.Dynamic;
@@ -16,7 +17,7 @@ namespace ShoreHue.UI.Seabed
 {
     /// <summary>
     /// 其他海床：按分类（对齐海床树）浏览在线市场，Win11 资源管理器式查看（大图标/小图标/列表/详细信息）；
-    /// 本地 .dbp 导出/导入；安装走权限确认 + Defender + 沙箱编译。
+    /// 本地 .shpkg（旧 .dbp）导出/导入；安装走权限确认 + Defender + 沙箱编译。
     /// </summary>
     public sealed class SeabedMarketWindow : Window
     {
@@ -130,8 +131,7 @@ namespace ShoreHue.UI.Seabed
             {
                 get
                 {
-                    string folder = Kind == "Widget" ? "面板/小组件"
-                        : Kind == "Panel" ? "面板/面板功能"
+                    string folder = Kind is "Widget" or "Panel" ? "面板"
                         : Kind == "Full" ? "整套预设（设置 → 预设）"
                         : "海床对应分类";
                     return folder;
@@ -173,13 +173,14 @@ namespace ShoreHue.UI.Seabed
             MinHeight = 480;
             ShowInTaskbar = false;
             Background = new SolidColorBrush(_cBg);
-            Closed += (_, _) => { try { _http.Dispose(); } catch { } };
+            // 尽力而为：关窗时释放 HttpClient，失败会被 GC 收掉（进程很快就退出）
+            Closed += (_, _) => { try { _http.Dispose(); } catch (Exception ex) { LogManager.Debug($"[市场] 关闭窗口时释放 HttpClient 失败（无害）：{ex.Message}"); } };
 
             // ===== 顶部工具栏（Win11Button 与设置页一致） =====
             var export = new Button { Content = "导出当前预设", Width = 110, Height = 28, FontSize = 11, Margin = new Thickness(0, 0, 6, 0) };
             export.Style = (Style)FindResource("Win11Button");
             export.Click += Export_Click;
-            var import = new Button { Content = "导入 .dbp…", Width = 100, Height = 28, FontSize = 11, Margin = new Thickness(0, 0, 10, 0) };
+            var import = new Button { Content = "导入 .shpkg…", Width = 100, Height = 28, FontSize = 11, Margin = new Thickness(0, 0, 10, 0) };
             import.Style = (Style)FindResource("Win11Button");
             import.Click += Import_Click;
             var refresh = new Button { Content = "刷新列表", Width = 80, Height = 28, FontSize = 11, Margin = new Thickness(0, 0, 10, 0) };
@@ -558,7 +559,7 @@ namespace ShoreHue.UI.Seabed
                 {
                     var dlg = new SaveFileDialog
                     {
-                        Filter = "ShoreHue 预设包 (*.dbp)|*.dbp",
+                        Filter = SeabedPackage.DialogFilter,
                         FileName = cp.Name + SeabedPackage.Extension,
                         Title = "导出单预设"
                     };
@@ -576,7 +577,7 @@ namespace ShoreHue.UI.Seabed
                     if (data == null) { _status.Text = "读取预设失败"; return; }
                     var dlg = new SaveFileDialog
                     {
-                        Filter = "ShoreHue 预设包 (*.dbp)|*.dbp",
+                        Filter = SeabedPackage.DialogFilter,
                         FileName = presetName + SeabedPackage.Extension,
                         Title = "导出整套预设"
                     };
@@ -597,7 +598,7 @@ namespace ShoreHue.UI.Seabed
             {
                 var dlg = new OpenFileDialog
                 {
-                    Filter = "ShoreHue 预设包 (*.dbp)|*.dbp|所有文件|*.*",
+                    Filter = SeabedPackage.DialogFilter,
                     Title = "导入预设包"
                 };
                 if (dlg.ShowDialog(this) != true) return;
@@ -647,7 +648,7 @@ namespace ShoreHue.UI.Seabed
                     return;
                 }
                 var permissions = ShoreHue.UI.Widgets.Dynamic.WidgetPermissions.Detect(cp.Source);
-                // ★ 多形态上传：收集节点海床文件夹里的附加文件（.xaml/.xaml.cs 等，与 .dbp 导出一致）
+                // ★ 多形态上传：收集节点海床文件夹里的附加文件（.xaml/.xaml.cs 等，与 .shpkg 导出一致）
                 var extra = new System.Collections.Generic.List<GitHubMarketService.PackageFile>();
                 try
                 {
@@ -670,13 +671,19 @@ namespace ShoreHue.UI.Seabed
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 收集不到附加文件 → 放流出去的包会缺 .xaml/.xaml.cs（下架/安装都会不完整）
+                    LogManager.Warning($"[市场] 放流时读取附加文件失败（包会缺文件）：{ex.Message}");
+                }
                 var win = new PublishWindow(cp.Source, cp.Name, cp.Kind ?? "Widget",
-                    cp.BaseType ?? "Widget", cp.ParentKey ?? "", cp.SourceKey ?? "", cp.Category, permissions, extra) { Owner = this };
+                    cp.BaseType ?? "Widget", cp.ParentKey ?? "", cp.SourceKey ?? "", cp.Category, permissions, extra,
+                    cp.MarketId) { Owner = this };
                 win.ShowDialog();
                 if (win.Published)
                 {
                     _status.Text = "已放流「" + (string.IsNullOrWhiteSpace(win.NameResult) ? cp.Name : win.NameResult) + "」";
+                    RememberMarketId(cp, win.IdResult);
                     _ = RefreshOnlineAsync();   // 刷新市场列表
                 }
             }
@@ -686,18 +693,41 @@ namespace ShoreHue.UI.Seabed
             }
         }
 
+        /// <summary>
+        /// 记住"这个本地面板对应市场里哪个包"（写回设置 + 落盘 manifest 的 marketId）。
+        /// 好处：更新同一个包时包 ID 自动填对 —— 手打很容易变成"又发了一个新包"，或撞上别人的 ID 被拒。
+        /// ★ 回写失败只记日志、不报错：**包已经发布成功了**，不能因为回写失败让用户以为发布失败。
+        /// </summary>
+        private void RememberMarketId(CustomPanelDefinition cp, string marketId)
+        {
+            if (string.IsNullOrEmpty(marketId) || cp.MarketId == marketId) return;
+            cp.MarketId = marketId;
+
+            try { _page.SettingsService.Host().SetCustomPanels(_page.SettingsService.CustomPanels.ToList()); }
+            catch (Exception ex) { LogManager.Warning($"[市场] 回写 marketId 到设置失败（下次更新需手填 ID）：{ex.Message}"); }
+
+            try { ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(cp); }
+            catch (Exception ex) { LogManager.Warning($"[市场] 回写 marketId 到 manifest 失败（下次更新需手填 ID）：{ex.Message}"); }
+        }
+
+        /// <summary>
+        /// 安装/导入前的**知情确认**（Chrome 扩展那套：列能力 + 说清后果 + 用户拍板）。
+        /// ★ 关键在诚实：这些都跑在宿主进程里、以你的身份运行，扫描只是启发式的降门槛，**不是能挡住一切的沙箱**。
+        ///   以前只在"检测到权限"时提示，检测不到就静默装 —— 检测本身会漏（比如数据流向网络这种组合能力），
+        ///   所以现在**一律确认**，只是文案不同。
+        /// </summary>
         private bool ConfirmPermissions(string name, List<string> permissions)
         {
-            string perms = WidgetPermissions.Describe(permissions);
-            if (permissions.Count > 0)
-            {
-                var confirm = MessageBox.Show(this,
-                    "「" + name + "」声明了以下权限：\n" + perms +
-                    "\n\n该代码由他人编写，将运行在你的电脑上。仅从可信来源安装，确定继续吗？",
-                    "其他海床 · 权限提示",
-                    MessageBoxButton.OKCancel, MessageBoxImage.Warning);
-                if (confirm != MessageBoxResult.OK) { _status.Text = "已取消"; return false; }
-            }
+            string detail = WidgetPermissions.DescribeConsequences(permissions);
+            string body = detail.Length > 0
+                ? "「" + name + "」需要以下能力：\n" + detail
+                : "「" + name + "」没有检测到明显的能力需求。\n（检测是启发式的，可能有遗漏）";
+            var confirm = MessageBox.Show(this,
+                body +
+                "\n\n这段代码由他人编写，会以你的身份运行在这台电脑上 —— 请只从你信任的来源安装。",
+                "其他海床 · 安装前确认",
+                MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+            if (confirm != MessageBoxResult.OK) { _status.Text = "已取消"; return false; }
             return true;
         }
 
@@ -706,6 +736,9 @@ namespace ShoreHue.UI.Seabed
             if (result.Kind == "Full")
             {
                 if (result.FullData == null) { _status.Text = "整套预设数据无效"; return; }
+                // ★ 信任表不能由外部包注入（此处再兜一道：无论走哪条导入路径都净化）
+                PluginTrustSanitizer.StripExternalTrust(result.FullData,
+                    PluginTrustSanitizer.ReadLocalTrust(), $"包「{result.Name}」");
                 PresetManager.SaveFull(result.Name, result.FullData);
                 _page.RefreshAll();
                 _status.Text = "已导入整套预设「" + result.Name + "」";
@@ -732,19 +765,23 @@ namespace ShoreHue.UI.Seabed
                 Source = result.Source,
                 SourceKey = result.SourceKey ?? "",
                 TrustedSource = false,   // ★ 市场来源统一走沙箱（剪贴板已降为权限声明，安装时提示）
+                // ★ 记住它来自市场哪个包：以后"更新"时自动填对 ID，不必手打
+                MarketId = result.MarketId ?? "",
                 CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm")
             };
             list.Add(cp);
-            settings.CustomPanels = list;
+            settings.Host().SetCustomPanels(list);
             // ★ 落盘到海床文件夹（文件夹即真相源）：watcher/Reload 检测 → 编译挂载 → UI 自动刷新
-            ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(cp);
+            string writeErr = ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(cp);
             // ★ 多形态：把 .xaml/.xaml.cs 等附加文件写入节点目录（XAML 形态走 CompileXaml）
-            if (result.ExtraFiles.Count > 0)
-                ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.WriteExtraFiles(cp, result.ExtraFiles);
+            if (writeErr.Length == 0 && result.ExtraFiles.Count > 0)
+                writeErr = ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.WriteExtraFiles(cp, result.ExtraFiles);
             ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.Reload();
             _page.RefreshAll();
-            _status.Text = "已拾贝「" + result.Name + "」 · " + scanNote +
-                " · 权限：" + WidgetPermissions.Describe(result.Permissions);
+            _status.Text = writeErr.Length > 0
+                ? "拾贝「" + result.Name + "」写入失败：" + writeErr
+                : "已拾贝「" + result.Name + "」 · " + scanNote +
+                  " · 权限：" + WidgetPermissions.Describe(result.Permissions);
         }
 
         // ==================== 详情页 ====================
@@ -773,7 +810,11 @@ namespace ShoreHue.UI.Seabed
                         if (list.Count > 0) item.Files = list;
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 解析不出 files 清单 → 详情页只列 main.cs（显示不全，不影响安装）
+                    LogManager.Debug($"[市场] 解析包内文件清单失败（详情页只列 main.cs）：{ex.Message}");
+                }
                 // ★ 按 files 清单拉取各文件并记录大小（main.cs 已拉，跳过）
                 _detailFileSizes.Clear();
                 if (item.Files.Count > 0)
@@ -849,6 +890,7 @@ namespace ShoreHue.UI.Seabed
                     result.BaseType = GetStr(root, "baseType");
                     result.ParentKey = GetStr(root, "parentKey");
                     result.SourceKey = GetStr(root, "sourceKey");
+                    result.MarketId = GetStr(root, "id");   // 记住来源包 ID（更新时自动填对）
                     if (root.TryGetProperty("files", out var files) && files.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var f in files.EnumerateArray())
@@ -860,11 +902,16 @@ namespace ShoreHue.UI.Seabed
                                 string fcontent = await _http.GetStringAsync(MarketBase + "/packages/" + _currentItem!.Id + "/" + fname);
                                 result.ExtraFiles.Add(new GitHubMarketService.PackageFile(fname, fcontent));
                             }
-                            catch { }
+                            catch (Exception ex)
+                            {
+                                // 附加文件没拉到 → 这个包会以"只有 main.cs"的形态装进去（可能少界面文件）
+                                LogManager.Warning($"[市场] 拾贝时下载附加文件失败（该包将缺少 {fname}）：{ex.Message}");
+                            }
                         }
                     }
                 }
-                result.Permissions = WidgetPermissions.Detect(_detailSource);
+                result.Permissions = WidgetPermissions.Detect(
+                    _detailSource + "\n" + string.Join("\n", result.ExtraFiles.ConvertAll(f => f.Content)));
 
                 if (!ConfirmPermissions(result.Name, result.Permissions)) return;
                 InstallResult(result, "在线来源（源码直接解析，沙箱编译拦截危险 API）");
@@ -987,6 +1034,7 @@ namespace ShoreHue.UI.Seabed
                     result.BaseType = GetStr(root, "baseType");
                     result.ParentKey = GetStr(root, "parentKey");
                     result.SourceKey = GetStr(root, "sourceKey");
+                    result.MarketId = GetStr(root, "id");   // 记住来源包 ID（更新时自动填对）
                     // ★ 多形态：按 files 清单拉取附加文件（.xaml / .xaml.cs / config.json）
                     if (root.TryGetProperty("files", out var files) && files.ValueKind == JsonValueKind.Array)
                     {
@@ -999,11 +1047,15 @@ namespace ShoreHue.UI.Seabed
                                 string fcontent = await _http.GetStringAsync(MarketBase + "/packages/" + item.Id + "/" + fname);
                                 result.ExtraFiles.Add(new GitHubMarketService.PackageFile(fname, fcontent));
                             }
-                            catch { }
+                            catch (Exception ex)
+                            {
+                                LogManager.Warning($"[市场] 拾贝时下载附加文件失败（该包将缺少 {fname}）：{ex.Message}");
+                            }
                         }
                     }
                 }
-                result.Permissions = WidgetPermissions.Detect(source);
+                result.Permissions = WidgetPermissions.Detect(
+                    source + "\n" + string.Join("\n", result.ExtraFiles.ConvertAll(f => f.Content)));
 
                 if (!ConfirmPermissions(result.Name, result.Permissions)) return;
                 InstallResult(result, "在线来源（源码直接解析，沙箱编译拦截危险 API）");
@@ -1086,9 +1138,18 @@ namespace ShoreHue.UI.Seabed
                 // 下载完成后刷新设置页
                 if (win.Result == "download")
                 {
-                    try { _page.SettingsService.Reload(); } catch { }
+                    // 文件已经落盘了，但内存设置没重载 → 界面若照样说"已刷新"就是在骗用户
+                    bool reloaded = true;
+                    try { _page.SettingsService.Host().Reload(); }
+                    catch (Exception ex)
+                    {
+                        reloaded = false;
+                        LogManager.Warning($"[市场] 云端恢复设置后重载失败（本次运行仍用旧设置，重启后生效）：{ex.Message}");
+                    }
                     _page.RefreshAll();
-                    _status.Text = "已从云端恢复设置（设置页已刷新）";
+                    _status.Text = reloaded
+                        ? "已从云端恢复设置（设置页已刷新）"
+                        : "已从云端恢复设置（本次运行仍用旧设置，重启 ShoreHue 后生效）";
                 }
                 else if (win.Result == "upload")
                 {
@@ -1158,11 +1219,12 @@ namespace ShoreHue.UI.Seabed
             return root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
         }
 
-        /// <summary>市场包 id 校验：仅英文/数字/下划线/连字符（防路径穿越注入）。</summary>
+        /// <summary>
+        /// 市场包 id 校验：一段或两段（`登录名/短名`），防路径穿越注入。
+        /// ★ 复用发布端的同一条规则（`MarketPackageRules.ValidateIdFormat`），**不再自己写一份正则** ——
+        ///   同一概念两处实现必然漂移：客户端原来只认一段，命名空间 id 会被它当成"非法"直接拒掉。
+        /// </summary>
         private static bool IsValidMarketId(string? id)
-        {
-            return !string.IsNullOrEmpty(id) &&
-                   System.Text.RegularExpressions.Regex.IsMatch(id, "^[A-Za-z0-9_-]{2,64}$");
-        }
+            => MarketPackageRules.ValidateIdFormat(id) == null;
     }
 }

@@ -2,6 +2,9 @@ using ShoreHue.Core.Models;
 using ShoreHue.Core.Services;
 using ShoreHue.Core.Services.Configuration;
 using ShoreHue.UI.Seabed;
+// ★ 树的行模型与扫描器已抽到 SeabedTreeScanner.cs（无 UI 依赖、可单测）；
+//   这里用 using static 让原有调用点（ReadManifestField / FsKindOf）零改动。
+using static ShoreHue.UI.Seabed.SeabedTreeScanner;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -51,85 +54,6 @@ public class CustomPanel : UserControl, IWidget
 
         /// <summary>树节点（含缩进层级，供 ListBox 展示）。三级与二级用图标/缩进区分。
         /// ★ IsAdd/HasDelete 必须是属性（WPF 绑定只认属性，字段绑定失败 → ⊕/✕ 按钮不显示）。</summary>
-        private sealed class FlatNode
-        {
-            public ConfigNode Node;
-            public int Level;
-            public bool IsAdd { get; set; }      // 每级末尾的"⊕ 新建同级"占位行
-            public bool HasDelete { get; set; }  // 用户新建项：可删除（行末 ×）
-
-            // ===== 文件资源管理器行（文件夹=真相：树显示 seabed 真实目录/文件） =====
-            /// <summary>资源管理器行：选中项的绝对路径（文件或目录）。null = 传统配置树行。</summary>
-            public string? FsPath;
-            /// <summary>资源管理器行：是否为目录（false = 文件）。</summary>
-            public bool FsIsDir;
-            /// <summary>资源管理器行：内置标记（该目录/其父目录 manifest system=true → 删除前警告）。</summary>
-            public bool FsIsSystem;
-            /// <summary>资源管理器行：显示名（目录/文件名原样，不中文化）。</summary>
-            public string? DisplayOverride;
-            /// <summary>资源管理器行：所在功能目录的 manifest kind（Widget/Panel/Config/StatusProvider/Animation）。</summary>
-            public string? FsKind;
-            /// <summary>资源管理器行：所在功能目录的 manifest id（英文标识）。</summary>
-            public string? FsManifestId;
-            /// <summary>资源管理器行：是否为配置目录（常规/区域/面板/动画 下的 config.json 投影）。</summary>
-            public bool FsIsConfigDir;
-
-            public string Display => DisplayOverride != null
-                ? DisplayOverride
-                : IsAdd
-                    ? ""   // 占位行只显示 ⊕ 按钮，不再显示文字
-                    : Level switch
-                    {
-                        0 => Node.Name,
-                        1 => "▸ " + Node.Name,
-                        _ => "• " + Node.Name
-                    };
-            public double Indent => Level switch { 0 => 0, 1 => 14, _ => 30 };
-            public System.Windows.Thickness IndentMargin => new System.Windows.Thickness(Indent, 0, 0, 0);
-
-            // 高亮：编译报错 → 叉的红色；未启用的面板 → Windows 主题色；
-            // 被预设覆盖（未启用）→ 灰色加删除线；否则默认
-            public bool IsError { get; set; }
-            public bool IsUnused { get; set; }
-            public bool IsOverridden { get; set; }
-            public bool IsApplied { get; set; }   // 该单预设当前处于"已应用"状态 → 高亮
-            public System.Windows.Media.Brush TextBrush
-            {
-                get
-                {
-                    if (IsError) return _errBrush;
-                    if (IsApplied) return _accentBrush;
-                    if (IsUnused) return _accentBrush;
-                    if (IsOverridden) return _dimBrush;
-                    return System.Windows.Media.Brushes.Black;
-                }
-            }
-            public System.Windows.TextDecorationCollection? TextDecor => IsOverridden
-                ? System.Windows.TextDecorations.Strikethrough
-                : null;
-            private static readonly System.Windows.Media.Brush _dimBrush =
-                new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xA0, 0xA0, 0xA0));
-            private static readonly System.Windows.Media.Brush _errBrush =
-                new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE0, 0x60, 0x60));
-            private static readonly System.Windows.Media.Brush _accentBrush = AccentBrush();
-
-            /// <summary>Windows 主题色（随系统强调色变化），取不到时用蓝色。</summary>
-            private static System.Windows.Media.Brush AccentBrush()
-            {
-                try
-                {
-                    var settings = new Windows.UI.ViewManagement.UISettings();
-                    var c = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Accent);
-                    return new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromArgb(c.A, c.R, c.G, c.B));
-                }
-                catch
-                {
-                    return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4A, 0x90, 0xD9));
-                }
-            }
-        }
-
         private readonly ISettingsService _settings;
         private List<FlatNode> _flatNodes = new();
         private ConfigNode? _selected;
@@ -139,6 +63,7 @@ public class CustomPanel : UserControl, IWidget
         private DateTime _armDeleteAt;
         private Button? _armDeleteBtn;
         private System.Windows.Threading.DispatcherTimer? _armDeleteTimer;
+        private System.Windows.Threading.DispatcherTimer? _previewResizeTimer;   // 预览框尺寸变化 → 防抖重画
 
         public SeabedPage(ISettingsService settings)
         {
@@ -146,6 +71,24 @@ public class CustomPanel : UserControl, IWidget
             cmbProgMode.SelectedIndex = 0;   // ★ 默认简单编程
             _settings = settings;
             txtXamlEditor.TextChanged += (_, _) => UpdateXamlPreview();
+            // ★ 预览框尺寸变了要重画：设计宽度取自预览框（见 UpdateXamlPreview），
+            //   不重画就会一直用"打开那一刻"的宽度。防抖 300ms —— 拖窗口时不能每个像素都重新解析 XAML。
+            if (previewFrame != null)
+                previewFrame.SizeChanged += (_, _) =>
+                {
+                    if (_previewResizeTimer == null)
+                    {
+                        _previewResizeTimer = new System.Windows.Threading.DispatcherTimer
+                        { Interval = TimeSpan.FromMilliseconds(300) };
+                        _previewResizeTimer.Tick += (_, _) =>
+                        {
+                            _previewResizeTimer!.Stop();
+                            if (CurrentProgMode == PromptGenerator.ProgrammingMode.Xaml) UpdateXamlPreview();
+                        };
+                    }
+                    _previewResizeTimer.Stop();
+                    _previewResizeTimer.Start();
+                };
             UpdateEditorVisibility();
             LoadTree();
             RefreshPresets();
@@ -167,7 +110,12 @@ public class CustomPanel : UserControl, IWidget
                 var (_, fx, fxc, _) = LoadNodeFromFolder(node, cp);
                 return !string.IsNullOrEmpty(fx) || !string.IsNullOrEmpty(fxc);
             }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                // 返回 false = 该节点被判为"不支持完全编程"（界面上 XAML 模式会被禁用）
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[海床] 判断节点是否支持 XAML 失败（按不支持处理）：{ex.Message}");
+                return false;
+            }
         }
 
         /// <summary>当前编程模式：Simple=简单编程 / Xaml=完全编程。</summary>
@@ -185,6 +133,15 @@ public class CustomPanel : UserControl, IWidget
         /// <summary>模式切换：显示对应编辑器 + 重新加载当前节点代码。</summary>
         private void CmbProgMode_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
+            // ★① 海床里"正开着真实文件"时，**文件是唯一真相源** —— 也必须排在下面的"节点不支持 XAML"守卫
+            //   之前：一个没有 XAML 的节点不该把海床里打开的成对文件带偏。
+            //   以前这里是节点版逻辑（RefreshXamlEditors(_selected)）→ 点 .xaml.cs 后再切模式，
+            //   编辑器被节点内容覆盖、预览随之变空，且内容相同时 TextChanged 不再触发，预览不会自恢复（真机反馈）。
+            if (!_openingFile && _fsPath != null && !_fsIsDir && System.IO.File.Exists(_fsPath))
+            {
+                OpenExplorerFile(_fsPath);   // 内部按文件形态设定模式：不可能的组合会自己弹回
+                return;
+            }
             if (_selected != null && CurrentProgMode == PromptGenerator.ProgrammingMode.Xaml && !NodeSupportsXaml(_selected))
             {
                 // ★ 节点不支持完全编程（面板/状态栏/配置无 XAML）：强制回退简单模式
@@ -309,7 +266,7 @@ public class CustomPanel : UserControl, IWidget
                 }
                 if (string.IsNullOrEmpty(folderName)) return ("", "", "", "");
                 // ★ 分组名 → 目录（小组件/面板功能 → 面板/小组件、面板/面板功能；其余 = 设置页签目录）
-                string groupFolder = ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.MapCategoryToFolder(group);
+                string groupFolder = ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.MapCategoryToFolder(group ?? "");
                 string dir = Path.Combine(ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.RootDir, groupFolder, folderName);
                 if (!Directory.Exists(dir)) return ("", "", "", "");
                 if (isXaml)
@@ -327,7 +284,11 @@ public class CustomPanel : UserControl, IWidget
                     if (File.Exists(Path.Combine(dir, "config.json"))) cfg = File.ReadAllText(Path.Combine(dir, "config.json"));
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 读不出内容 → 编辑器显示为空（用户可能以为文件空了），必须留痕
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[海床] 读取节点文件内容失败（编辑器显示为空）：{ex.Message}");
+            }
             return (src, x, xc, cfg);
         }
         private static string SanitizeClassName(string name)
@@ -340,18 +301,47 @@ public class CustomPanel : UserControl, IWidget
             return s.Length > 0 ? s : "XamlWidget";
         }
 
-        /// <summary>实时预览：把 .xaml 文本解析为控件显示（失败显示错误，不崩）。</summary>
+        /// <summary>
+        /// 实时预览：把 .xaml 文本解析为控件显示（失败显示错误，不崩）。
+        /// ★ 必须套"设计期宿主"（见 Seabed_XamlPreviewTemplate）：裸 `XamlReader.Parse` **在解析期看不见
+        ///   Application.Resources**，用 {StaticResource CardStyle/AccentButton/…} 的面板会整块预览失败。
+        ///   宿主容器把真实主题字典合并进解析期作用域，并为运行时才由代码后置提供的尺寸类资源补占位值。
+        /// </summary>
         private void UpdateXamlPreview()
         {
             if (xamlPreviewHost == null) return;
             try
             {
                 string xaml = txtXamlEditor?.Text ?? "";
-                if (string.IsNullOrWhiteSpace(xaml)) { xamlPreviewHost.Content = null; return; }
+                if (string.IsNullOrWhiteSpace(xaml))
+                {
+                    xamlPreviewHost.Content = new TextBlock
+                    {
+                        Text = "（这一半没有内容：完全编程需要 <目录名>.xaml 与 <目录名>.xaml.cs 成对存在）",
+                        Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x88, 0x88, 0x88)),
+                        FontSize = 11,
+                        TextWrapping = TextWrapping.Wrap
+                    };
+                    SetPreviewNote(null);
+                    return;
+                }
                 // ★ 复用 XamlCodeGenerator 的清洗（移除 x:Class/事件，动态解析可加载）
                 string clean = ShoreHue.UI.Widgets.Dynamic.XamlCodeGenerator.CleanXamlPublic(xaml);
-                var obj = System.Windows.Markup.XamlReader.Parse(clean);
+                // ★ 给宿主一个设计宽度（= 预览框当前宽度）：面板 XAML 多写成"撑满型"，
+                //   没有宽度参照就塌成一根竖条（note 实测 56×167），看起来像没渲染成功。
+                double designW = previewFrame != null && previewFrame.ActualWidth > 0
+                    ? previewFrame.ActualWidth - 20 : ShoreHue.UI.Seabed.XamlPreviewTemplate.DefaultDesignWidth;
+                designW = Math.Clamp(designW, 240, 1600);
+                string host = ShoreHue.UI.Seabed.XamlPreviewTemplate.Host(
+                    clean, PreviewDictionaries(), designW, ShoreHue.UI.Seabed.XamlPreviewTemplate.DefaultDesignMinHeight, out var seeded);
+                var obj = System.Windows.Markup.XamlReader.Parse(host);
                 xamlPreviewHost.Content = obj;
+                // ★ 占位说明**不进标题**（标题上写"占位"像是没画完），放进悬停提示：
+                //   想知道的人鼠标一停就能看到，不想知道的人看到的永远是干净的一句"预览"。
+                SetPreviewNote(seeded.Count == 0 ? null
+                    : "预览里由代码后置提供的数值按设计期取值渲染：" + string.Join("、", seeded)
+                      + "（例如 ClipCollapsedHeight 取 " + ShoreHue.UI.Seabed.XamlPreviewTemplate.DesignPlaceholder
+                      + " = 默认 4 行 × 16px，实际运行时由代码算出）");
             }
             catch (Exception ex)
             {
@@ -363,7 +353,50 @@ public class CustomPanel : UserControl, IWidget
                     FontSize = 11,
                     TextWrapping = TextWrapping.Wrap
                 };
+                SetPreviewNote("解析失败（保存/编译不受影响）");
             }
+        }
+
+        /// <summary>预览的补充说明：**只进悬停提示**，标题保持恒定一句话。note=null 表示无可说的。</summary>
+        private void SetPreviewNote(string? note)
+        {
+            if (txtPreviewLabel == null) return;
+            txtPreviewLabel.Text = "预览（实时渲染 .xaml）";
+            txtPreviewLabel.ToolTip = string.IsNullOrEmpty(note) ? null : note;
+        }
+
+        /// <summary>
+        /// 预览要合并的主题字典：**直接用 App 已加载的那几本**（自维护，App.xaml 换主题也不用改这里），
+        /// 转成带 `;component` 的绝对 pack URI —— 相对路径在"无基址"的解析环境里解析不了。
+        /// App 资源为空（极端情况）时退回两个已知主题文件。
+        /// </summary>
+        private static List<string> PreviewDictionaries()
+        {
+            var list = new List<string>();
+            string asm = typeof(SeabedPage).Assembly.GetName().Name ?? "ShoreHue";
+            try
+            {
+                var app = System.Windows.Application.Current;
+                if (app != null)
+                {
+                    foreach (System.Windows.ResourceDictionary d in app.Resources.MergedDictionaries)
+                    {
+                        var src = d.Source;
+                        if (src == null) continue;
+                        list.Add(src.IsAbsoluteUri
+                            ? src.AbsoluteUri
+                            : ShoreHue.UI.Seabed.XamlPreviewTemplate.PackUri(asm, src.OriginalString));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Debug("[海床] 读取 App 主题字典失败，预览将退回默认主题：" + ex.Message);
+            }
+            if (list.Count == 0)
+                foreach (var f in ShoreHue.UI.Seabed.XamlPreviewTemplate.DefaultThemeFiles)
+                    list.Add(ShoreHue.UI.Seabed.XamlPreviewTemplate.PackUri(asm, f));
+            return list;
         }
 
         /// <summary>外部（设置页解除覆盖后）刷新整页：树高亮/删除线、预设列表、当前选中编辑框。</summary>
@@ -379,7 +412,11 @@ public class CustomPanel : UserControl, IWidget
                     else txtJsonEditor.Text = ExtractJson(_selected);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 编辑器没刷新 = 显示的还是上一个节点的内容（容易误存），留痕
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[海床] 刷新编辑器失败（显示内容可能不是当前节点）：{ex.Message}");
+            }
         }
 
         // ========== 其他海床 · 共享平台（导出/导入） ==========
@@ -514,7 +551,11 @@ public class CustomPanel : UserControl, IWidget
                         return true;
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：判不出来就当"不属于该面板"（最坏是某一项没变灰）
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[海床] 判断字段归属失败（按不属于处理）：{ex.Message}");
+            }
             return false;
         }
 
@@ -642,7 +683,7 @@ public class CustomPanel : UserControl, IWidget
                     string name = fn.Node.Name;
                     var list = _settings.CustomPanels;
                     list.RemoveAll(p => p.Id == customId);
-                    _settings.CustomPanels = list;
+                    _settings.Host().SetCustomPanels(list);
                     // ★ 树↔文件夹同步：删除对应文件夹（按 manifest.id 匹配）
                     ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.DeleteNodeFolder(customId);
 
@@ -659,7 +700,7 @@ public class CustomPanel : UserControl, IWidget
                         if (changed)
                         {
                             _settings.AppliedPresets = overrides;
-                            _settings.Reload();
+                            _settings.Host().Reload();
                             RefreshOwnerSettingsDimming();
                         }
                     }
@@ -739,12 +780,15 @@ public class CustomPanel : UserControl, IWidget
                     Source = isWidgetParent ? DefaultPanelSource : "",
                     CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm")
                 });
-                _settings.CustomPanels = list;
+                _settings.Host().SetCustomPanels(list);
                 // ★ 树↔文件夹同步：新节点落盘到 seabed/ 对应分组文件夹（manifest + 内容文件）
                 var created = list.FirstOrDefault(p => p.Name == input && p.ParentKey == parentKey);
-                if (created != null) ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(created);
+                string saveErr = created != null
+                    ? ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(created) : "";
                 LoadTree();
-                txtJsonStatus.Text = $"已创建{levelName}：{input}（在「自定义功能」下编辑，文件已写入小组件文件夹）";
+                txtJsonStatus.Text = saveErr.Length > 0
+                    ? saveErr
+                    : $"已创建{levelName}：{input}（在「自定义功能」下编辑，文件已写入小组件文件夹）";
             }
             catch (Exception ex)
             {
@@ -809,6 +853,7 @@ public class CustomPanel : UserControl, IWidget
             }
             catch
             {
+                // 设计如此：反射生成失败就换一种方式（下面直接遍历字段名）生成同样的配置代码
                 foreach (var f in node.FieldNames)
                 {
                     AppendConfigFieldLine(sb, null, f);
@@ -874,11 +919,17 @@ public class CustomPanel : UserControl, IWidget
                         {
                             string xaml = txtXamlEditor.Text ?? "";
                             string xamlCs = txtXamlCsEditor.Text ?? "";
-                            // ★ 沙箱：市场来源先拦截危险 API（本地自写不受限，扫描合并源码）
+                            // ★ 沙箱：市场来源先拦截危险 API（本地自写不受限）。
+                            //   ★★ 必须与**加载端**同口径传入 (csharp, markup) 两个参数：
+                            //   以前把 xaml 和 xamlCs 拼成一个字符串只传给第一个参数，于是
+                            //   ① 受限 XAML 方言校验（CheckXamlDialect：clr-namespace / ObjectDataProvider /
+                            //      标记扩展白名单 / 外部 URI）在这条保存路径上**完全不跑**；
+                            //   ② .xaml 里的字面串被当成 C# 走文本/符号层，产生误报。
+                            //   加载端 PanelContentController / WidgetSwitcher 用的就是 SandboxErrors(xamlCs, xaml)。
                             if (!cp.TrustedSource)
                             {
-                                string merged = xaml + "\n" + xamlCs;
-                                string sandboxErr = ShoreHue.UI.Widgets.Dynamic.WidgetCompiler.SandboxErrors(merged);
+                                string sandboxErr = ShoreHue.UI.Widgets.Dynamic.WidgetCompiler
+                                    .SandboxErrors(xamlCs + "\n" + (cp.Source ?? ""), xaml);
                                 if (sandboxErr.Length > 0)
                                 {
                                     _errorCustomId = cp.Id;
@@ -925,9 +976,10 @@ public class CustomPanel : UserControl, IWidget
                             }
                             cp.Source = src;
                         }
-                        _settings.CustomPanels = list;
-                        // ★ 树↔文件夹同步：更新文件
-                        ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(cp);
+                        _settings.Host().SetCustomPanels(list);
+                        // ★ 树↔文件夹同步：更新文件（失败必须说出来：下面本来会直接显示"编译通过"）
+                        string saveErr = ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(cp);
+                        if (saveErr.Length > 0) { txtJsonStatus.Text = saveErr; return; }
                         _errorCustomId = null;   // 编译通过，清除错误高亮
                         LoadTree();
                         txtJsonStatus.Text = cp.Kind == "Config"
@@ -986,23 +1038,57 @@ public class CustomPanel : UserControl, IWidget
         /// <summary>
         /// 恢复 = 一键复原所有设置（内置默认值），不清除已创建的预设/变体；
         /// 解除全部变灰（清空 AppliedPresets），需要时可在预设列表重新应用。
+        /// ★ 这是本页破坏性最强的操作（一次点击抹掉全部设置），必须二次确认，
+        ///   并且把"运行期/身份类"字段与配置一起保留 —— 它们不是"用户的偏好设置"，
+        ///   而是设备与安装状态，重置会连带丢掉用户已建立的信任关系与引导进度。
         /// </summary>
         private void BtnRestore_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                var defaults = new ShoreHue.Core.Services.Configuration.SettingsData();
                 var old = SettingsFileManager.Load();
-                // 保留编程模式相关数据（不删用户已创建的预设/变体）
+
+                bool confirmed = ShoreHue.UI.Seabed.SeabedFileGuard.ConfirmDelete(
+                    System.Windows.Window.GetWindow(this),
+                    "全部设置",
+                    "一键复原所有设置",
+                    "这会把所有设置恢复为出厂默认值（动画、区域面板分配、外观、交互、AI 之外的配置项…）。\n" +
+                    "• 已保存的预设/变体、插件信任记录、引导进度会保留\n" +
+                    "• 但你的个性化配置无法撤销\n\n确定要复原吗？");
+                if (!confirmed)
+                {
+                    txtJsonStatus.Text = "已取消复原";
+                    return;
+                }
+
+                var defaults = new ShoreHue.Core.Services.Configuration.SettingsData();
+
+                // ① 编程模式数据（不删用户已创建的预设/变体）
                 defaults.ProgrammingModeEnabled = old.ProgrammingModeEnabled;
                 defaults.CustomPanels = old.CustomPanels;
+                defaults.AppliedPresets = old.AppliedPresets;
+
+                // ② 设备/安装身份类字段：重置它们不是"恢复默认"，而是让用户丢东西
+                defaults.TrustedPlugins = old.TrustedPlugins;                 // 已建立的插件信任（内容哈希绑定）
+                defaults.OnboardingCompleted = old.OnboardingCompleted;       // 引导进度（否则引导会重新弹）
+                defaults.Language = old.Language;                             // 界面语言
+                defaults.RegionAnimationOverrides = old.RegionAnimationOverrides;
+                defaults.RegionTriggerDelay = old.RegionTriggerDelay;
+                defaults.RegionHideDelay = old.RegionHideDelay;
+                defaults.WebBookmarks = old.WebBookmarks;
+                defaults.WeatherRecentCities = old.WeatherRecentCities;
+                defaults.WeatherCity = old.WeatherCity;
+                defaults.WeatherEnabled = old.WeatherEnabled;
+                defaults.UiFontScale = old.UiFontScale;
+                defaults.AutoCheckUpdate = old.AutoCheckUpdate;
+
                 SettingsFileManager.Save(defaults);
-                _settings.Reload();
+                _settings.Host().Reload();
                 _errorCustomId = null;
                 _errorNodeKey = null;
                 LoadTree();
                 RefreshOwnerSettingsDimming();
-                txtJsonStatus.Text = "已一键复原所有设置（预设/变体保留，变灰已解除）";
+                txtJsonStatus.Text = "已一键复原所有设置（预设/变体、信任记录、引导进度已保留）";
                 if (_selected != null)
                 {
                     if (CurrentProgMode == PromptGenerator.ProgrammingMode.Xaml) RefreshXamlEditors(_selected);
@@ -1074,31 +1160,26 @@ public class CustomPanel : UserControl, IWidget
             }
         }
 
-        /// <summary>打开 AI 编程指南文档（docs/AI-PROGRAMMING.md，发布时随 exe 携带）。</summary>
+        /// <summary>打开 AI 编程指南文档（docs/AI-PROGRAMMING.md，**嵌入程序集**，见 csproj 的 EmbeddedResource）。</summary>
         private void BtnAiGuide_Click(object sender, RoutedEventArgs e)
         {
             try
             {
-                // 运行目录优先（发布携带），回退项目根（开发期）
-                string? doc = Path.Combine(AppContext.BaseDirectory, "docs", "AI-PROGRAMMING.md");
-                if (!File.Exists(doc))
+                // ★ 只从嵌入资源取 —— 发布版与开发机**同一条读取路径**。
+                //   原先的顺序是「BaseDirectory\docs\ → 再向上 8 层找 ShoreHue.csproj 取 docs\」：
+                //   第一条在发布版不存在（Release 只发 exe），第二条是"按开发机特征分支"的环境探测，
+                //   两者都失败时只能提示"文档未随程序发布"。改成嵌入资源后这段探测整个删掉了。
+                using var stream = typeof(SeabedPage).Assembly
+                    .GetManifestResourceStream("ShoreHue.Docs.AI-PROGRAMMING.md");
+                if (stream == null)
                 {
-                    string? root = AppContext.BaseDirectory;
-                    for (int i = 0; i < 8 && root != null; i++)
-                    {
-                        if (File.Exists(Path.Combine(root, "ShoreHue.csproj")))
-                        {
-                            string p = Path.Combine(root, "docs", "AI-PROGRAMMING.md");
-                            if (File.Exists(p)) { doc = p; break; }
-                        }
-                        root = Path.GetDirectoryName(root);
-                    }
-                }
-                if (doc == null || !File.Exists(doc))
-                {
-                    txtJsonStatus.Text = "未找到 AI-PROGRAMMING.md（文档未随程序发布）";
+                    txtJsonStatus.Text = "未找到 AI-PROGRAMMING.md（嵌入资源缺失，构建配置被改过？）";
                     return;
                 }
+                // 写一份到临时目录再交给系统打开（用户可在自己的编辑器里看/复制）
+                string doc = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "ShoreHue-AI-PROGRAMMING.md");
+                using (var reader = new System.IO.StreamReader(stream))
+                    System.IO.File.WriteAllText(doc, reader.ReadToEnd(), new System.Text.UTF8Encoding(false));
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(doc) { UseShellExecute = true });
             }
             catch (Exception ex) { txtJsonStatus.Text = ex.Message; }
@@ -1193,9 +1274,10 @@ public class CustomPanel : UserControl, IWidget
                     {
                         cp.Source = code;
                     }
-                    _settings.CustomPanels = list;
-                    // ★ 树↔文件夹同步：更新文件
-                    ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(cp);
+                    _settings.Host().SetCustomPanels(list);
+                    // ★ 树↔文件夹同步：更新文件（失败不能显示"已更新"）
+                    string saveErr = ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(cp);
+                    if (saveErr.Length > 0) { txtJsonStatus.Text = saveErr; return; }
                     _errorCustomId = null;
                     LoadTree();
                     txtJsonStatus.Text = $"已更新单预设「{cp.Name}」";
@@ -1236,11 +1318,13 @@ public class CustomPanel : UserControl, IWidget
                     SourceKey = _selected.Key,   // 记录来源：应用时若冲突则原节点高亮/设置页变灰
                     CreatedAt = DateTime.Now.ToString("yyyy-MM-dd HH:mm")
                 });
-                _settings.CustomPanels = list;
+                _settings.Host().SetCustomPanels(list);
                 // ★ 树↔文件夹同步：变体落盘到 seabed/ 对应分组文件夹
                 var savedCp = list.LastOrDefault(p => p.Name == newName && p.ParentKey == parentKey);
-                if (savedCp != null) ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(savedCp);
+                string saveErr = savedCp != null
+                    ? ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.SaveNodeToFolder(savedCp) : "";
                 LoadTree();
+                if (saveErr.Length > 0) { txtJsonStatus.Text = saveErr; return; }
                 txtJsonStatus.Text = isPanel
                     ? $"已保存单预设「{newName}」（面板变体，可在 设置→区域面板 中选用）"
                     : isFeature
@@ -1305,7 +1389,7 @@ public class CustomPanel : UserControl, IWidget
                 }
             }
             _settings.AppliedPresets = overrides;
-            _settings.Reload();
+            _settings.Host().Reload();
             LoadTree();
             RefreshOwnerSettingsDimming();
             txtJsonStatus.Text = $"预设已应用：{name}（冲突的内置设置已置灰，海床左侧对应项高亮）";
@@ -1358,7 +1442,7 @@ public class CustomPanel : UserControl, IWidget
                 data.AppliedPresets = overrides;
 
                 // ★ 整体替换 + 落盘 + 通知（SettingsManager.Apply 语义）
-                _settings.Apply(data);
+                _settings.Host().Apply(data);
                 _errorCustomId = null;
                 _errorNodeKey = null;
                 LoadTree();
@@ -1382,7 +1466,7 @@ public class CustomPanel : UserControl, IWidget
             var result = new System.Collections.Generic.List<string>();
             if (string.IsNullOrEmpty(code)) return result;
             foreach (System.Text.RegularExpressions.Match m in
-                System.Text.RegularExpressions.Regex.Matches(code, @"data.([A-Za-z_][A-Za-z0-9_]*)s*="))
+                System.Text.RegularExpressions.Regex.Matches(code, @"data\.([A-Za-z_][A-Za-z0-9_]*)\s*="))
             {
                 string f = m.Groups[1].Value;
                 if (!result.Contains(f)) result.Add(f);
@@ -1428,7 +1512,7 @@ public class CustomPanel : UserControl, IWidget
                 if (changed)
                 {
                     _settings.AppliedPresets = overrides;
-                    _settings.Reload();
+                    _settings.Host().Reload();
                     LoadTree();
                     RefreshOwnerSettingsDimming();
                 }
@@ -1437,7 +1521,7 @@ public class CustomPanel : UserControl, IWidget
             txtJsonStatus.Text = "已删除预设：" + name + "（其覆盖标记已清除）";
         }
 
-        /// <summary>其他海床：共享平台（导出 .dbp 包 / 导入并提示风险权限）。</summary>
+        /// <summary>其他海床：共享平台（导出 .shpkg 包 / 导入并提示风险权限）。</summary>
         private void BtnOtherSeabed_Click(object sender, RoutedEventArgs e)
         {
             try

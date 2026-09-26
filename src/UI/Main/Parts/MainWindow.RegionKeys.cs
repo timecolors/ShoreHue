@@ -42,9 +42,9 @@ namespace ShoreHue.UI.Main
             for (int d = 1; d <= RegionKeyMaxDigit; d++)
             {
                 // 主键盘 '1'-'9'：VK 0x31-0x39
-                try { RegisterHotKey(_hwnd, RegionKeyBase + d, mods, (uint)('0' + d)); } catch { }
+                try { RegisterHotKey(_hwnd, RegionKeyBase + d, mods, (uint)('0' + d)); } catch { /* 注册不上通常是该组合键被别的程序占了；其余数字键照常注册 */ }
                 // 小键盘 Numpad1-9：VK 0x61-0x69（同一 id 区间高位偏移，分发时归一到同一 digit）
-                try { RegisterHotKey(_hwnd, RegionKeyNumpadBase + d, mods, (uint)(0x60 + d)); } catch { }
+                try { RegisterHotKey(_hwnd, RegionKeyNumpadBase + d, mods, (uint)(0x60 + d)); } catch { /* 同上：单个键注册失败不影响其它键 */ }
             }
         }
 
@@ -61,8 +61,8 @@ namespace ShoreHue.UI.Main
             if (hwnd == IntPtr.Zero) return;
             for (int d = 1; d <= RegionKeyMaxDigit; d++)
             {
-                try { UnregisterHotKey(hwnd, RegionKeyBase + d); } catch { }
-                try { UnregisterHotKey(hwnd, RegionKeyNumpadBase + d); } catch { }
+                try { UnregisterHotKey(hwnd, RegionKeyBase + d); } catch { /* 注销失败无害：窗口销毁时系统会一并回收热键 */ }
+                try { UnregisterHotKey(hwnd, RegionKeyNumpadBase + d); } catch { /* 同上 */ }
             }
         }
 

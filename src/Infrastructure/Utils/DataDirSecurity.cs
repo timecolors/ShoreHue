@@ -32,7 +32,7 @@ namespace ShoreHue.Infrastructure.Utils
                     }
                 }
             }
-            catch { }
+            catch { /* 读不出 ACL 就**不擅自改权限**：盲改可能把用户自己的访问权弄坏；%LOCALAPPDATA% 默认本就仅本人可读 */ }
 
             if (!hasForeign) return;   // 已安全
 

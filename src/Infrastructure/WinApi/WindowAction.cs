@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using ShoreHue.Core.Infrastructure.Logging;
 
 namespace ShoreHue.Infrastructure.WinApi
 {
@@ -64,12 +65,19 @@ namespace ShoreHue.Infrastructure.WinApi
                 BringWindowToTop(hwnd);
                 SwitchToThisWindow(hwnd, true);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：Win32 调用对"目标窗口已关闭/被 UIPI 拦（提权窗口）"只会失败或抛异常，
+                //   用户看到的现象就是"点了没反应"，记 Debug 便于排查（每次都是用户点击触发，不会刷屏）
+                LogManager.Debug($"[窗口动作] 切换到窗口失败：{ex.Message}");
+            }
         }
 
         public static void Close(IntPtr hwnd)
         {
-            try { SendMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero); } catch { }
+            // 尽力而为：关不掉的常见原因是目标窗口提权（UIPI 拦跨权限消息）
+            try { SendMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero); }
+            catch (Exception ex) { LogManager.Debug($"[窗口动作] 发送关闭消息失败：{ex.Message}"); }
         }
 
         public static bool IsWindowAlive(IntPtr hwnd) => hwnd != IntPtr.Zero && IsWindow(hwnd);
@@ -83,7 +91,12 @@ namespace ShoreHue.Infrastructure.WinApi
                 BringWindowToTop(hwnd);
                 SwitchToThisWindow(hwnd, true);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：Win32 调用对"目标窗口已关闭/被 UIPI 拦（提权窗口）"只会失败或抛异常，
+                //   用户看到的现象就是"点了没反应"，记 Debug 便于排查（每次都是用户点击触发，不会刷屏）
+                LogManager.Debug($"[窗口动作] 激活并前置窗口失败：{ex.Message}");
+            }
         }
 
         public static void ToggleMinimize(IntPtr hwnd)
@@ -101,7 +114,12 @@ namespace ShoreHue.Infrastructure.WinApi
                     SendMessage(hwnd, WM_SYSCOMMAND, (IntPtr)SC_MINIMIZE, IntPtr.Zero);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：Win32 调用对"目标窗口已关闭/被 UIPI 拦（提权窗口）"只会失败或抛异常，
+                //   用户看到的现象就是"点了没反应"，记 Debug 便于排查（每次都是用户点击触发，不会刷屏）
+                LogManager.Debug($"[窗口动作] 切换最小化失败：{ex.Message}");
+            }
         }
 
         public static IntPtr GetRootWindow(IntPtr hwnd)
@@ -152,7 +170,12 @@ namespace ShoreHue.Infrastructure.WinApi
                 else
                     ShowWindow(hwnd, SW_MAXIMIZE);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：Win32 调用对"目标窗口已关闭/被 UIPI 拦（提权窗口）"只会失败或抛异常，
+                //   用户看到的现象就是"点了没反应"，记 Debug 便于排查（每次都是用户点击触发，不会刷屏）
+                LogManager.Debug($"[窗口动作] 切换最大化失败：{ex.Message}");
+            }
         }
 
         /// <summary>窗口置顶/取消置顶切换。</summary>
@@ -166,7 +189,12 @@ namespace ShoreHue.Infrastructure.WinApi
                 SetWindowPos(hwnd, isTopmost ? HWND_NOTOPMOST : HWND_TOPMOST,
                     0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：Win32 调用对"目标窗口已关闭/被 UIPI 拦（提权窗口）"只会失败或抛异常，
+                //   用户看到的现象就是"点了没反应"，记 Debug 便于排查（每次都是用户点击触发，不会刷屏）
+                LogManager.Debug($"[窗口动作] 切换置顶失败：{ex.Message}");
+            }
         }
 
         /// <summary>移动并调整窗口大小（屏幕物理坐标）。</summary>
@@ -176,7 +204,12 @@ namespace ShoreHue.Infrastructure.WinApi
             {
                 SetWindowPos(hwnd, IntPtr.Zero, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：Win32 调用对"目标窗口已关闭/被 UIPI 拦（提权窗口）"只会失败或抛异常，
+                //   用户看到的现象就是"点了没反应"，记 Debug 便于排查（每次都是用户点击触发，不会刷屏）
+                LogManager.Debug($"[窗口动作] 移动/调整窗口失败：{ex.Message}");
+            }
         }
 
         /// <summary>
@@ -192,7 +225,12 @@ namespace ShoreHue.Infrastructure.WinApi
                 keybd_event(VK_D, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
                 keybd_event(VK_LWIN, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：Win32 调用对"目标窗口已关闭/被 UIPI 拦（提权窗口）"只会失败或抛异常，
+                //   用户看到的现象就是"点了没反应"，记 Debug 便于排查（每次都是用户点击触发，不会刷屏）
+                LogManager.Debug($"[窗口动作] 模拟 Win+D 显示桌面失败：{ex.Message}");
+            }
         }
 
         private const byte VK_LWIN = 0x5B;

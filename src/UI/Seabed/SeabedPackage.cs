@@ -1,3 +1,4 @@
+using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.Core.Models;
 using ShoreHue.Core.Services.Configuration;
 using ShoreHue.UI.Widgets.Dynamic;
@@ -5,19 +6,27 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text.Json;
 
 namespace ShoreHue.UI.Seabed
 {
     /// <summary>
     /// 其他海床 · 预设/功能包（线上市场托管前的本地文件共享形态）：
-    /// zip 包（.dbp）= manifest.json（元信息 + 权限标注）+ main.cs（源码）+ config.json（配置片段/整套数据）。
+    /// zip 包（.shpkg，旧版 .dbp 仍可导入）= manifest.json（元信息 + 权限标注）+ main.cs（源码）+ config.json。
     /// - 导出（= 上传前的打包）：用 WidgetPermissions.Detect 在导出时刻检测源码权限并写入 manifest；
     /// - 导入：重新检测权限（不信任包内声明，防篡改），有风险权限时由调用方弹窗提示用户确认后才写入。
     /// </summary>
     public static class SeabedPackage
     {
-        public const string Extension = ".dbp";
+        /// <summary>包扩展名（ShoreHue Package）。旧版为 .dbp（DynamicBird 时代的缩写），仍可导入。</summary>
+        public const string Extension = ".shpkg";
+
+        /// <summary>兼容读取的旧扩展名（不用于导出）。</summary>
+        public static readonly string[] LegacyExtensions = { ".dbp" };
+
+        /// <summary>文件对话框过滤器（新格式在前，旧格式仍可选）。</summary>
+        public const string DialogFilter = "ShoreHue 预设包 (*.shpkg)|*.shpkg|旧版预设包 (*.dbp)|*.dbp|所有文件|*.*";
         private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
         public sealed class ImportResult
@@ -28,6 +37,8 @@ namespace ShoreHue.UI.Seabed
             public string? BaseType;
             public string? ParentKey;
             public string? SourceKey;
+            /// <summary>市场包 ID（形如 `登录名/短名`）。安装/导入时记住它，更新时才能自动填对 ID。</summary>
+            public string? MarketId;
             public string Source = "";
             public string ConfigJson = "{}";
             public List<string> Permissions = new();
@@ -35,7 +46,7 @@ namespace ShoreHue.UI.Seabed
             public SettingsData? FullData;          // Kind==Full：整套预设数据
         }
 
-        /// <summary>导出单预设（树中自定义项）为 .dbp 包。成功返回 null，失败返回错误信息。</summary>
+        /// <summary>导出单预设（树中自定义项）为 .shpkg 包。成功返回 null，失败返回错误信息。</summary>
         public static string? ExportCustom(CustomPanelDefinition cp, string path)
         {
             try
@@ -80,13 +91,17 @@ namespace ShoreHue.UI.Seabed
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 收集附加文件失败 → 导出的包里会缺 .xaml/.cs（放流出去的包不完整），用户可见
+                    LogManager.Warning($"[海床] 导出时读取附加文件失败（包内会缺文件）：{ex.Message}");
+                }
                 return null;
             }
             catch (Exception ex) { return "导出失败：" + ex.Message; }
         }
 
-        /// <summary>导出整套预设为 .dbp 包。成功返回 null，失败返回错误信息。</summary>
+        /// <summary>导出整套预设为 .shpkg 包。成功返回 null，失败返回错误信息。</summary>
         public static string? ExportFullPreset(string presetName, SettingsData data, string path)
         {
             try
@@ -107,7 +122,7 @@ namespace ShoreHue.UI.Seabed
             catch (Exception ex) { return "导出失败：" + ex.Message; }
         }
 
-        /// <summary>解析 .dbp 包。失败返回 null 并给出 error。</summary>
+        /// <summary>解析 .shpkg 包（兼容旧 .dbp）。失败返回 null 并给出 error。</summary>
         public static ImportResult? Import(string path, out string? error)
         {
             error = null;
@@ -150,11 +165,21 @@ namespace ShoreHue.UI.Seabed
                 if (result.Kind == "Full")
                 {
                     result.FullData = JsonSerializer.Deserialize<SettingsData>(result.ConfigJson);
+                    // ★ 信任表不能由包注入：一条 TrustedPlugins 记录就能让受害机上任意外来包
+                    //   在下次加载时跳过整个沙箱（ComputeTrust 第一步即 trustedByHash）。
+                    //   只保留本机已有的同 id 同哈希记录。
+                    if (result.FullData != null)
+                        PluginTrustSanitizer.StripExternalTrust(result.FullData,
+                            PluginTrustSanitizer.ReadLocalTrust(), $"包「{result.Name}」");
                 }
-                // ★ 导入时刻重新检测权限（不信任包内声明，防篡改）；配置代码/源码才需要
-                if (!string.IsNullOrEmpty(result.Source))
+                // ★ 导入时刻重新检测权限（不信任包内声明，防篡改）。
+                //   必须把**所有会真正执行的文本**都算进去：XAML 形态的代码在 .xaml.cs 里，
+                //   只看 main.cs 会把一个"main.cs 干净、.xaml.cs 联网"的包报成"没有检测到明显的能力需求"。
+                string codeForPermissions = result.Source + "\n" +
+                    string.Join("\n", result.ExtraFiles.Select(f => f.Content));
+                if (!string.IsNullOrWhiteSpace(codeForPermissions))
                 {
-                    result.Permissions = WidgetPermissions.Detect(result.Source);
+                    result.Permissions = WidgetPermissions.Detect(codeForPermissions);
                 }
                 return result;
             }

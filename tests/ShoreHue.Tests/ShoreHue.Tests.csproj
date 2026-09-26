@@ -5,6 +5,8 @@
     <RollForward>LatestMajor</RollForward>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- 与被测项目同一标准：可空性告警不许留在构建输出里（它们就是空引用路径的证据） -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

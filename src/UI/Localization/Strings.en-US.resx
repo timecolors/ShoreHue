@@ -189,9 +189,6 @@
   <data name="UI_MediaControlView_44" xml:space="preserve">
     <value>Previous track</value>
   </data>
-  <data name="UI_MediaControlView_45" xml:space="preserve">
-    <value>Play/Pause</value>
-  </data>
   <data name="UI_MediaControlView_46" xml:space="preserve">
     <value>Next track</value>
   </data>
@@ -232,9 +229,6 @@ Mouse wheel zooms the mirrored view</value>
   <data name="UI_OnboardingWindow_58" xml:space="preserve">
     <value>ShoreHue - Welcome</value>
   </data>
-  <data name="UI_OnboardingWindow_59" xml:space="preserve">
-    <value>ShoreHue</value>
-  </data>
   <data name="UI_OnboardingWindow_60" xml:space="preserve">
     <value>Welcome</value>
   </data>
@@ -249,12 +243,6 @@ Mouse wheel zooms the mirrored view</value>
   </data>
   <data name="UI_OnboardingWindow_64" xml:space="preserve">
     <value>Settings Features</value>
-  </data>
-  <data name="UI_OnboardingWindow_65" xml:space="preserve">
-    <value>Get Started</value>
-  </data>
-  <data name="UI_OnboardingWindow_66" xml:space="preserve">
-    <value>Welcome to ShoreHue</value>
   </data>
   <data name="UI_OnboardingWindow_67" xml:space="preserve">
     <value>A desktop edge-panel tool that fits Windows.</value>
@@ -292,9 +280,6 @@ Top-right = none (to avoid interfering with closing windows).</value>
   <data name="UI_OnboardingWindow_77" xml:space="preserve">
     <value>Taskbar: Pin, Close, Reorder</value>
   </data>
-  <data name="UI_OnboardingWindow_78" xml:space="preserve">
-    <value>Pin apps</value>
-  </data>
   <data name="UI_OnboardingWindow_79" xml:space="preserve">
     <value>Drag a running window tab onto the icon in the top-left of the panel and release to pin it as a shortcut (the icon turns into ＋ while dragging).</value>
   </data>
@@ -319,9 +304,6 @@ Top-right = none (to avoid interfering with closing windows).</value>
   <data name="UI_OnboardingWindow_86" xml:space="preserve">
     <value>Show / hide the panel anytime, without touching the screen edge.</value>
   </data>
-  <data name="UI_OnboardingWindow_87" xml:space="preserve">
-    <value>Translate-Selection Hotkey</value>
-  </data>
   <data name="UI_OnboardingWindow_88" xml:space="preserve">
     <value>Select text in any app and press this hotkey to bring up the panel and translate (requires configuring a service in Settings → AI). Leave empty = disabled.</value>
   </data>
@@ -331,17 +313,11 @@ Top-right = none (to avoid interfering with closing windows).</value>
   <data name="UI_OnboardingWindow_90" xml:space="preserve">
     <value>Clear</value>
   </data>
-  <data name="UI_OnboardingWindow_91" xml:space="preserve">
-    <value>Auto update</value>
-  </data>
   <data name="UI_OnboardingWindow_92" xml:space="preserve">
     <value>After configuring a GitHub repo in Settings, new versions are announced in the notification dock; click to download.</value>
   </data>
   <data name="UI_OnboardingWindow_93" xml:space="preserve">
     <value>Settings Features Worth Knowing</value>
-  </data>
-  <data name="UI_OnboardingWindow_94" xml:space="preserve">
-    <value>Tide-follow mode</value>
   </data>
   <data name="UI_OnboardingWindow_95" xml:space="preserve">
     <value>When enabled, the panel follows the mouse as it leaves the panel (like the tide drawn by the moon); when the mouse stops, the panel stays nearby — handy for carrying the panel wherever you need it.</value>
@@ -364,9 +340,6 @@ Top-right = none (to avoid interfering with closing windows).</value>
   <data name="UI_OnboardingWindow_101" xml:space="preserve">
     <value>The status bar at the top shows time, CPU, memory, volume, etc.; hover over the volume percentage and scroll to adjust volume up/down.</value>
   </data>
-  <data name="UI_OnboardingWindow_102" xml:space="preserve">
-    <value>AI Assistant</value>
-  </data>
   <data name="UI_OnboardingWindow_103" xml:space="preserve">
     <value>Bring up the AI chat panel from the left edge center: streaming replies, quick commands (translate / summarize / explain code / polish), multi-session management.
 Drag an image file onto the ShoreHue icon on the left side of the panel to send it to the AI for analysis (requires a vision-capable model such as gpt-4o, glm-4v, qwen-vl, etc.).
@@ -377,9 +350,6 @@ Fill in an OpenAI-compatible provider (DeepSeek, local Ollama, SiliconFlow, etc.
   </data>
   <data name="UI_OnboardingWindow_105" xml:space="preserve">
     <value>Show/hide animations, easing types, corner radius, opacity and icon size are all adjustable; Mica frosted-glass background is supported on Win11.</value>
-  </data>
-  <data name="UI_OnboardingWindow_106" xml:space="preserve">
-    <value>All Set</value>
   </data>
   <data name="UI_OnboardingWindow_107" xml:space="preserve">
     <value>Try moving the mouse to the screen edge. Everything can be adjusted in Settings, and you can revisit this guide anytime.</value>
@@ -1045,10 +1015,10 @@ Fill in an OpenAI-compatible provider (DeepSeek, local Ollama, SiliconFlow, etc.
     <value>Max items</value>
   </data>
   <data name="UI_SettingsWindow_328" xml:space="preserve">
-    <value>Preview chars</value>
+    <value>Preview lines</value>
   </data>
   <data name="UI_SettingsWindow_329" xml:space="preserve">
-    <value>Max items kept in clipboard history, and how many characters are previewed in the list.</value>
+    <value>Max items kept in clipboard history, and how many lines each entry shows at most (extra lines are simply not shown — text is no longer cut off with an ellipsis).</value>
   </data>
   <data name="UI_SettingsWindow_330" xml:space="preserve">
     <value>Notes</value>
@@ -1089,9 +1059,6 @@ Fill in an OpenAI-compatible provider (DeepSeek, local Ollama, SiliconFlow, etc.
   <data name="UI_SettingsWindow_342" xml:space="preserve">
     <value>Animation when the panel slides in/out from the edge</value>
   </data>
-  <data name="UI_SettingsWindow_343" xml:space="preserve">
-    <value>Easing type</value>
-  </data>
   <data name="UI_SettingsWindow_344" xml:space="preserve">
     <value>Linear</value>
   </data>
@@ -1115,19 +1082,6 @@ Fill in an OpenAI-compatible provider (DeepSeek, local Ollama, SiliconFlow, etc.
   </data>
   <data name="UI_SettingsWindow_351" xml:space="preserve">
     <value>Bounce</value>
-  </data>
-  <data name="UI_SettingsWindow_352" xml:space="preserve">
-    <value>Duration</value>
-  </data>
-  <data name="UI_SettingsWindow_353" xml:space="preserve">
-    <value>Linear: constant speed, no easing
-Cubic: fast then slow, smooth and natural (recommended)
-Quadratic: softer than cubic
-Quartic: very smooth, good for long animations
-Quintic: extremely smooth
-Elastic: bouncy oscillation, lively
-Back: slight overshoot then settle
-Bounce: bounces at the end, good for endings</value>
   </data>
   <data name="UI_SettingsWindow_354" xml:space="preserve">
     <value>Transform/Switch</value>
@@ -1433,6 +1387,87 @@ Bounce: bounces at the end, good for endings</value>
   <data name="Note_DeleteConfirm" xml:space="preserve">
     <value>Delete note "{0}"?</value>
   </data>
+  <data name="Note_CloseTab" xml:space="preserve">
+    <value>Close this note</value>
+  </data>
+  <data name="Note_ToggleTitle" xml:space="preserve">
+    <value>T</value>
+  </data>
+  <data name="Note_Color" xml:space="preserve">
+    <value>C</value>
+  </data>
+  <data name="Note_EmptyHint" xml:space="preserve">
+    <value>No notes yet. Click "+" above; Ctrl+F to search; right-click a note to pin or recolor (switch key is configurable in Settings → Panels → Notes).</value>
+  </data>
+  <data name="Note_Pin" xml:space="preserve">
+    <value>Pin</value>
+  </data>
+  <data name="Note_Unpin" xml:space="preserve">
+    <value>Unpin</value>
+  </data>
+  <data name="Note_Undo" xml:space="preserve">
+    <value>Undo</value>
+  </data>
+  <data name="Note_Deleted" xml:space="preserve">
+    <value>Deleted "{0}" (undo within 8s)</value>
+  </data>
+  <data name="Note_FollowPanel" xml:space="preserve">
+    <value>Match panel background</value>
+  </data>
+  <data name="Note_MoreColors" xml:space="preserve">
+    <value>More colors…</value>
+  </data>
+  <data name="Note_Untitled" xml:space="preserve">
+    <value>Empty note</value>
+  </data>
+  <data name="Note_StatusFiltered" xml:space="preserve">
+    <value>Current note is filtered out ({1} match)</value>
+  </data>
+  <data name="Note_EditedAt" xml:space="preserve">
+    <value>Edited {0}</value>
+  </data>
+  <data name="Note_SearchTip" xml:space="preserve">
+    <value>Search notes (Ctrl+F): matches title and body</value>
+  </data>
+  <data name="Note_NewTip" xml:space="preserve">
+    <value>New note (Ctrl+N)</value>
+  </data>
+  <data name="Note_Rename" xml:space="preserve">
+    <value>Rename</value>
+  </data>
+  <data name="Note_Recolor" xml:space="preserve">
+    <value>Change color</value>
+  </data>
+  <data name="Note_Duplicate" xml:space="preserve">
+    <value>Duplicate</value>
+  </data>
+  <data name="Note_CopySuffix" xml:space="preserve">
+    <value>copy</value>
+  </data>
+  <data name="Note_RenameHint" xml:space="preserve">
+    <value>Edit the title above; it saves as you leave the field</value>
+  </data>
+  <data name="Set_NoteHotkeys_Title" xml:space="preserve">
+    <value>Note hotkeys (active while the note panel has focus)</value>
+  </data>
+  <data name="Set_NoteHotkey_New" xml:space="preserve">
+    <value>New note</value>
+  </data>
+  <data name="Set_NoteHotkey_Delete" xml:space="preserve">
+    <value>Delete current note</value>
+  </data>
+  <data name="Set_NoteHotkey_Next" xml:space="preserve">
+    <value>Next note</value>
+  </data>
+  <data name="Set_NoteHotkey_Hint" xml:space="preserve">
+    <value>Click the box and press a key combo; Backspace or Esc clears it. These only apply inside the note panel — no system-wide hotkeys are taken.</value>
+  </data>
+  <data name="Set_NoteHotkey_NotSet" xml:space="preserve">
+    <value>Not set (this action has no hotkey).</value>
+  </data>
+  <data name="Set_NoteHotkey_Conflict" xml:space="preserve">
+    <value>⚠ Duplicates another note hotkey — please pick another.</value>
+  </data>
   <data name="Note_Confirm" xml:space="preserve">
     <value>Confirm</value>
   </data>
@@ -1468,6 +1503,33 @@ Bounce: bounces at the end, good for endings</value>
   </data>
   <data name="Clip_Pin" xml:space="preserve">
     <value>Pin (never auto-cleared)</value>
+  </data>
+  <data name="Set_Clip_KeyboardNav" xml:space="preserve">
+    <value>Clipboard: keyboard control (↑↓ / Enter / number keys / Del)</value>
+  </data>
+  <data name="Set_Clip_ShowSource" xml:space="preserve">
+    <value>Clipboard: show source app</value>
+  </data>
+  <data name="Set_TextAi_TargetLang" xml:space="preserve">
+    <value>Target language</value>
+  </data>
+  <data name="Set_TextAi_TargetLangTip" xml:space="preserve">
+    <value>Empty = auto (Chinese→English, otherwise→Chinese)</value>
+  </data>
+  <data name="TextAi_History" xml:space="preserve">
+    <value>History</value>
+  </data>
+  <data name="TextAi_HistoryTip" xml:space="preserve">
+    <value>Recent translations (click one to copy)</value>
+  </data>
+  <data name="TextAi_HistoryEmpty" xml:space="preserve">
+    <value>(no history yet)</value>
+  </data>
+  <data name="Calc_HistoryEmpty" xml:space="preserve">
+    <value>(no history yet)</value>
+  </data>
+  <data name="Clip_CopiedFrom" xml:space="preserve">
+    <value>Copied · from {0}</value>
   </data>
   <data name="Clip_Copied" xml:space="preserve">
     <value>Copied</value>
@@ -2661,5 +2723,119 @@ Media control</value>
   </data>
   <data name="Set_Menu_AiSettings" xml:space="preserve">
     <value>AI Settings</value>
+  </data>
+  <data name="Capture_NoSelection" xml:space="preserve">
+    <value>No text selected</value>
+  </data>
+  <data name="Pip_MirrorShort" xml:space="preserve">
+    <value>Mirror</value>
+  </data>
+  <data name="Pip_EmbedShort" xml:space="preserve">
+    <value>Embed</value>
+  </data>
+  <data name="Quick_Muted" xml:space="preserve">
+    <value>Muted</value>
+  </data>
+  <data name="Quick_Volume" xml:space="preserve">
+    <value>Volume</value>
+  </data>
+  <data name="Web_Open" xml:space="preserve">
+    <value>Open</value>
+  </data>
+  <data name="Web_InitFailed" xml:space="preserve">
+    <value>WebView2 init failed: </value>
+  </data>
+  <data name="Web_OnlyHttp" xml:space="preserve">
+    <value>Only http/https URLs are supported</value>
+  </data>
+  <data name="Web_NavFailed" xml:space="preserve">
+    <value>Navigation failed: </value>
+  </data>
+  <data name="Ai_Timeout" xml:space="preserve">
+    <value>Connection timed out</value>
+  </data>
+  <data name="Ai_KeyEncryptFailed" xml:space="preserve">
+    <value>Key encryption failed; settings were not saved (existing key kept)</value>
+  </data>
+  <data name="Ai_SaveFailed" xml:space="preserve">
+    <value>Failed to save AI settings: </value>
+  </data>
+  <data name="Ai_SaveDialogFilter" xml:space="preserve">
+    <value>Markdown file (*.md)|*.md|Text file (*.txt)|*.txt</value>
+  </data>
+  <data name="Ai_ReplyFileName" xml:space="preserve">
+    <value>AI reply.md</value>
+  </data>
+  <data name="Toast_NoHash" xml:space="preserve">
+    <value>This release ships no integrity checksum, so auto-install was blocked. Please download it manually from Releases.</value>
+  </data>
+  <data name="Toast_HashMismatch" xml:space="preserve">
+    <value>Checksum mismatch; installation blocked (the download may be tampered with or corrupted). Please retry or download manually from Releases.</value>
+  </data>
+  <data name="Update_NoHashAskTitle" xml:space="preserve">
+    <value>Install confirmation</value>
+  </data>
+  <data name="Update_NoHashAsk" xml:space="preserve">
+    <value>This release provides no integrity checksum, so the downloaded file cannot be verified against the publisher (it may have been tampered with).`n`nContinue the installation anyway?</value>
+  </data>
+  <data name="Perm_Label_None" xml:space="preserve">
+    <value>No permissions</value>
+  </data>
+  <data name="Perm_Label_network" xml:space="preserve">
+    <value>Network</value>
+  </data>
+  <data name="Perm_Label_clipboard" xml:space="preserve">
+    <value>Clipboard</value>
+  </data>
+  <data name="Perm_Label_file" xml:space="preserve">
+    <value>Local files</value>
+  </data>
+  <data name="Perm_Label_process" xml:space="preserve">
+    <value>Process execution</value>
+  </data>
+  <data name="Perm_Label_system" xml:space="preserve">
+    <value>System info</value>
+  </data>
+  <data name="Perm_Label_window" xml:space="preserve">
+    <value>Window control</value>
+  </data>
+  <data name="Perm_Label_screen" xml:space="preserve">
+    <value>Screen capture</value>
+  </data>
+  <data name="Perm_Label_device" xml:space="preserve">
+    <value>Device toggles</value>
+  </data>
+  <data name="Perm_Consequence_network" xml:space="preserve">
+    <value>Can send data to the internet</value>
+  </data>
+  <data name="Perm_Consequence_clipboard" xml:space="preserve">
+    <value>Can read and write your clipboard</value>
+  </data>
+  <data name="Perm_Consequence_file" xml:space="preserve">
+    <value>Can read files on your computer</value>
+  </data>
+  <data name="Perm_Consequence_process" xml:space="preserve">
+    <value>Can launch other programs</value>
+  </data>
+  <data name="Perm_Consequence_system" xml:space="preserve">
+    <value>Can read system information (environment variables, etc.)</value>
+  </data>
+  <data name="Perm_Consequence_window" xml:space="preserve">
+    <value>Can control other programs' windows and simulate keyboard and mouse</value>
+  </data>
+  <data name="Perm_Consequence_screen" xml:space="preserve">
+    <value>Can capture your screen</value>
+  </data>
+  <data name="Perm_Consequence_device" xml:space="preserve">
+    <value>Can change screen brightness and toggle Bluetooth, Wi-Fi and the mobile hotspot</value>
+  </data>
+  <data name="Perm_Unknown" xml:space="preserve">
+    <value>(Unknown capability {0})</value>
+  </data>
+  <data name="Tray_SafeMode" xml:space="preserve">
+    <value>Restart in safe mode (no plug-ins) next time</value>
+  </data>
+  <data name="Tray_ClearBreaker" xml:space="preserve">
+    <value>Clear plug-in circuit breakers</value>
   </data>
 </root>

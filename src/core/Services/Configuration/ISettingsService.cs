@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace ShoreHue.Core.Services.Configuration
 {
@@ -110,7 +111,7 @@ namespace ShoreHue.Core.Services.Configuration
 
         // ========== 编程模式（海床） ==========
         bool ProgrammingModeEnabled { get; set; }
-        System.Collections.Generic.List<ShoreHue.Core.Models.CustomPanelDefinition> CustomPanels { get; set; }
+        System.Collections.Generic.List<ShoreHue.Core.Models.CustomPanelDefinition> CustomPanels { get; }
         System.Collections.Generic.Dictionary<string, string> AppliedPresets { get; set; }
 
         /// <summary>
@@ -183,6 +184,8 @@ namespace ShoreHue.Core.Services.Configuration
         // ========== 小组件显示开关 ==========
         bool IsWidgetEnabled(string widgetKey);
         void SetWidgetEnabled(string widgetKey, bool enabled);
+        /// <summary>清掉启用状态覆盖（删除插件时必须调用，否则同 id 重装默认禁用）。</summary>
+        void ClearWidgetEnabledOverride(string widgetKey);
 
         // ========== 自定义状态栏显示项开关 ==========
         bool IsStatusProviderEnabled(string providerId);
@@ -195,18 +198,74 @@ namespace ShoreHue.Core.Services.Configuration
         bool RegionHotkeysEnabled { get; set; }
         string RegionHotkeyModifier { get; set; }
 
-        // ========== 重新加载 / 保存 ==========
-        void Reload();
+        // ========== 划词翻译面板（设置 → 面板 → 划词翻译）==========
+        int TextAiHistoryLimit { get; set; }
+        string TextAiHistoryJson { get; set; }
+        string TextAiTargetLanguage { get; set; }
 
-        /// <summary>
-        /// 立即保存设置并通知变化（实时保存入口）
-        /// </summary>
-        void SaveSettings();
+        // ========== 计算器面板（设置 → 面板 → 计算器）==========
+        int CalculatorHistoryLimit { get; set; }
+        string CalculatorHistoryJson { get; set; }
 
-        /// <summary>用一份完整 SettingsData 替换内部数据并落盘（设置窗口保存入口）。</summary>
-        void Apply(SettingsData data);
+        // ========== 任务栏标签分组（当用户设置持久化）==========
+        string TaskbarGroupsJson { get; set; }
+
+        // ========== 插件运行时守卫（安全模式 / 异常熔断）==========
+        List<string> CircuitBrokenPlugins { get; set; }
+        bool SafeModeRequested { get; set; }
+        int UncleanExitCount { get; set; }
+
+        // ========== 剪贴板面板（设置 → 面板 → 剪贴板）==========
+        bool ClipboardKeyboardNav { get; set; }
+        bool ClipboardShowSourceApp { get; set; }
+
+        // ========== 便签快捷键（设置 → 面板 → 便签 里录入；在便签面板内生效） ==========
+        string NoteHotkeyNew { get; set; }
+        string NoteHotkeyDelete { get; set; }
+        string NoteHotkeyNext { get; set; }
+
+        // ========== 重新加载 / 保存：见 ISettingsHost（internal）==========
+        // ★ 这里**故意不声明**整表替换与落盘入口（Apply / Reload / SaveSettings）：
+        //   本接口会经 `HostCapabilities.Settings` 交给**外来插件**。
+        //   `Apply(new SettingsData { TrustedPlugins = … })` 曾经是一条完整的自授权通道 ——
+        //   插件能给自己（乃至任意包）登记信任并落盘，下次加载直接跳过整个沙箱。
+        //   只去掉 SetPluginTrusted 是不够的：`SettingsData.TrustedPlugins` 本身是公开可写属性。
+        //   宿主侧请用 ISettingsHost / IPluginTrustStore（均为 internal，插件引用不到）。
+        //   结构性守卫见 tests/ShoreHue.Tests/HostCapabilityBoundaryTests。
+        // ================================================================
 
         // ========== 事件 ==========
         event Action? SettingsChanged;
+    }
+
+    /// <summary>
+    /// 配置服务的**宿主面**：整表替换、落盘、重载、信任表所在配置的写入。
+    ///
+    /// ★ 必须保持 `internal`：这些成员一旦对外来插件可见，就等于把
+    ///   `config.json`（内含信任表）的写权限交出去 —— 见 `ISettingsService` 顶部注释。
+    ///   宿主调用点请用 `SettingsHostExtensions.Host()` 显式表达"我在用宿主面"。
+    /// </summary>
+    internal interface ISettingsHost
+    {
+        /// <summary>用一份完整 SettingsData 替换内部数据并落盘（设置窗口保存入口）。</summary>
+        void Apply(SettingsData data);
+
+        /// <summary>从磁盘重载配置（外部改过 config.json 之后调用）。</summary>
+        void Reload();
+
+        /// <summary>立即保存设置并通知变化（实时保存入口）。</summary>
+        void SaveSettings();
+
+        /// <summary>整表替换自定义面板列表（新增/删除/改名节点）。</summary>
+        void SetCustomPanels(System.Collections.Generic.List<ShoreHue.Core.Models.CustomPanelDefinition>? panels);
+    }
+
+    /// <summary>宿主侧取用配置服务宿主面的唯一入口（`_settings.Host().Reload()` 这样读）。</summary>
+    internal static class SettingsHostExtensions
+    {
+        public static ISettingsHost Host(this ISettingsService settings)
+            => settings as ISettingsHost
+               ?? throw new InvalidOperationException(
+                   $"设置服务实现 {settings.GetType().FullName} 未实现宿主面 ISettingsHost");
     }
 }

@@ -5,6 +5,7 @@
   "category": "小组件",
   "version": "1.0.0",
   "author": "timecolors",
+  "publisherId": 176211220,
   "description": "ShoreHue 内置计算器：标准 / 科学 / 程序员。",
   "baseType": "Widget",
   "parentKey": "panel-widgets",

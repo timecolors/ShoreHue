@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,6 +8,9 @@ namespace ShoreHue.UI.Panels
 {
     public partial class TaskbarView
     {
+        /// <summary>布局模式是否"水平"（滚动方向用；与 TaskbarScrollHandler.Reattach 的 isHorizontal 同源）。</summary>
+        private static bool IsHorizontalLayout(LayoutMode mode) => mode == LayoutMode.Horizontal;
+
         private void SetScrollDirection(ScrollViewer scroller, LayoutMode mode)
         {
             if (mode == LayoutMode.Horizontal)
@@ -36,7 +39,7 @@ namespace ShoreHue.UI.Panels
             };
         }
 
-        private ItemsControl CreateItemsControl(IEnumerable itemsSource, string templateKey)
+        private ItemsControl CreateItemsControl(IEnumerable itemsSource, string templateKey, DataTemplateSelector? selector = null)
         {
             var panelFactory = new FrameworkElementFactory(typeof(WrapPanel));
             panelFactory.SetValue(WrapPanel.OrientationProperty, Orientation.Horizontal);
@@ -50,7 +53,10 @@ namespace ShoreHue.UI.Panels
                 HorizontalAlignment = HorizontalAlignment.Left,
                 VerticalAlignment = VerticalAlignment.Center,
                 ItemsSource = itemsSource,
-                ItemTemplate = (DataTemplate)this.Resources[templateKey],
+                // ★ 有选择器时**不能**同时设 ItemTemplate：两者并存时实测 ItemTemplate 胜出，
+                //   分组标签会套用窗口模板 → 表现为「分组没图标、鼠标也悬停不进去」。
+                ItemTemplate = selector == null ? (DataTemplate)this.Resources[templateKey] : null,
+                ItemTemplateSelector = selector,
                 ItemsPanel = panelTemplate
             };
         }

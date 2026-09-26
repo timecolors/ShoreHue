@@ -10,18 +10,36 @@
 
         <!-- 左侧：配置树（一级/二级/三级，每级可 ⊕ 新增） -->
         <Border Background="{DynamicResource SettingsCardBg}" CornerRadius="8" Padding="6">
-            <ListBox x:Name="lstConfigTree"
-                     SelectionChanged="LstConfigTree_SelectionChanged"
-                     SelectionMode="Extended"
-                     FontSize="12"
-                     BorderThickness="0"
-                     Background="Transparent">
+            <DockPanel>
+                <!-- ★ 按名字筛选（清空即恢复目录树）：命中的项全深度列出并显示相对路径 -->
+                <Grid DockPanel.Dock="Top" Margin="2,0,2,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="🔍" FontSize="11" VerticalAlignment="Center" Margin="0,0,4,0" Foreground="#888888"/>
+                    <TextBox Grid.Column="1" x:Name="txtTreeFilter"
+                             FontSize="12" BorderThickness="0" Background="Transparent"
+                             ToolTip="按名字筛选文件/文件夹（全深度匹配，显示相对路径；清空即恢复目录树）"
+                             TextChanged="Tree_Filter_TextChanged"/>
+                </Grid>
+                <ListBox x:Name="lstConfigTree"
+                         SelectionChanged="LstConfigTree_SelectionChanged"
+                         SelectionMode="Extended"
+                         AllowDrop="True"
+                         DragOver="Tree_DragOver"
+                         Drop="Tree_Drop"
+                         KeyDown="Tree_KeyDown"
+                         FontSize="12"
+                         BorderThickness="0"
+                         Background="Transparent">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
                         <Grid>
                             <Grid.ContextMenu>
-                                <!-- ★ 文件资源管理器右键（VS Code 语义）：新建文件夹/重命名/删除/打开 -->
+                                <!-- ★ 文件资源管理器右键（VS Code 语义）：新建文件/新建文件夹/重命名/删除/打开 -->
                                 <ContextMenu>
+                                    <MenuItem Header="新建文件…" Click="Fs_NewFile_Click"/>
                                     <MenuItem Header="新建文件夹…" Click="Fs_NewFolder_Click"/>
                                     <Separator/>
                                     <MenuItem Header="重命名…" Click="Fs_Rename_Click"/>
@@ -83,7 +101,8 @@
                         </Grid>
                     </DataTemplate>
                 </ListBox.ItemTemplate>
-            </ListBox>
+                </ListBox>
+            </DockPanel>
         </Border>
 
         <!-- 可拖动分隔条：调整左侧宽度 -->
@@ -101,6 +120,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
@@ -164,8 +184,8 @@
 
                 <!-- 预览（下）：实时渲染 .xaml -->
                 <DockPanel Grid.Row="2">
-                    <TextBlock DockPanel.Dock="Top" Text="预览（实时渲染 .xaml）" FontSize="10.5" Foreground="#888888" Margin="0,0,0,2"/>
-                    <Border Background="{DynamicResource SettingsCardBg}" CornerRadius="6" Padding="8"
+                    <TextBlock x:Name="txtPreviewLabel" DockPanel.Dock="Top" Text="预览（实时渲染 .xaml）" FontSize="10.5" Foreground="#888888" Margin="0,0,0,2"/>
+                    <Border x:Name="previewFrame" Background="{DynamicResource SettingsCardBg}" CornerRadius="6" Padding="8"
                             BorderBrush="#33333333" BorderThickness="1">
                         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
                             <ContentControl x:Name="xamlPreviewHost" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
@@ -187,11 +207,28 @@
                 <Button x:Name="btnCopyPrompt" Content="复制 AI 提示词" Style="{StaticResource Win11Button}" Height="28" Padding="16,0" Margin="8,0,0,0" Click="BtnCopyPrompt_Click"/>
                   <Button x:Name="btnOpenNodeFolder" Content="打开文件夹" Style="{StaticResource Win11Button}" Height="28" Padding="16,0" Margin="8,0,0,0" Click="BtnOpenNodeFolder_Click" ToolTip="在系统文件管理器中打开当前选中功能的文件夹"/>
                   <Button x:Name="btnAiGuide" Content="AI 编程指南" Style="{StaticResource Win11Button}" Height="28" Padding="16,0" Margin="8,0,0,0" Click="BtnAiGuide_Click" ToolTip="打开 AI 编程指南：能做什么/不能做什么/各类功能教程"/>
-                <TextBlock x:Name="txtJsonStatus" VerticalAlignment="Center" Margin="12,0,0,0" FontSize="11" Foreground="#666666"/>
             </StackPanel>
 
+            <!-- ★ 状态行单独占一行：以前它排在那一排按钮的**末尾**，而 StackPanel 不换行 ——
+                 按钮越加越多之后（复制提示词/打开文件夹/AI 编程指南），"编译通过"这类提示
+                 直接**被挤出右边界裁掉**，用户以为提示没了。状态信息必须有自己的位置。
+                 ★ 空文本时折叠：实测空 TextBlock 仍占 13.97px 行高（不是 0），白占编辑框高度。
+                 纯 XAML 的 DataTrigger 解决，不需要事件/代码（TextBlock 没有 TextChanged）。 -->
+            <TextBlock x:Name="txtJsonStatus" Grid.Row="3" Margin="0,6,0,0" FontSize="11" Foreground="#666666" TextWrapping="Wrap">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Visible"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Text, RelativeSource={RelativeSource Self}}" Value="">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
+
             <!-- 预设区（整套/局部保存、切换、删除） -->
-            <Border Grid.Row="3" Background="{DynamicResource SettingsCardBg}" CornerRadius="8" Padding="10,8" Margin="0,12,0,0">
+            <Border Grid.Row="4" Background="{DynamicResource SettingsCardBg}" CornerRadius="8" Padding="10,8" Margin="0,12,0,0">
                 <StackPanel>
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -201,7 +238,7 @@
                         <TextBlock Text="预设（可保存整套，也可保存单个预设）" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center"/>
                         <Button Grid.Column="1" x:Name="btnOtherSeabed" Content="看看其他海床" Style="{StaticResource Win11Button}" Height="26" FontSize="11" Click="BtnOtherSeabed_Click"/>
                     </Grid>
-                    <TextBlock Text="「其他海床」共享平台：导出当前预设为 .dbp 包分享（自动标注权限），导入他人包时提示风险权限。" FontSize="10.5" Foreground="#999999" Margin="0,2,0,6" TextWrapping="Wrap"/>
+                    <TextBlock Text="「其他海床」共享平台：导出当前预设为 .shpkg 包分享（自动标注权限），导入他人包时提示风险权限。" FontSize="10.5" Foreground="#999999" Margin="0,2,0,6" TextWrapping="Wrap"/>
                     <Grid Margin="0,6,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>

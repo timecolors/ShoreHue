@@ -38,6 +38,8 @@ namespace ShoreHue.UI.Panels
             }
 
             UpdateShortcutRunningStates();
+            ReloadGroupDefs();
+            RebuildWindowDisplay();
             UpdateLayout();
         }
 
@@ -72,6 +74,8 @@ namespace ShoreHue.UI.Panels
             }
 
             UpdateShortcutRunningStates();
+            ReloadGroupDefs();
+            RebuildWindowDisplay();
             UpdateLayout();
         }
 

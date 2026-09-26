@@ -38,14 +38,20 @@ seabed/<一级分类>/<名字>/
   "author": "",
   "description": "",
   "kind": "StatusProvider",   // Widget | Panel | Config | StatusProvider | Animation
-  "trustedSource": true          // false = 市场来源，编译前强制过沙箱
+  "trustedSource": false         // 只有 false 有效（= 外来包，编译前强制过沙箱）；true/缺省都**不构成信任依据**
   "system": false                // true = 内置镜像副本（只展示不加载）
   "permissions": ["network"]   // 可选权限声明
 }
 ```
 
 > ★ `kind` 区分功能类型；同一分组下放错 kind 会被跳过（如 动画/ 里 kind=Widget 不加载）。
-> ★ 文件夹里放单个 `.cs` 文件也会被自动归一化为 `<名字>/main.cs`；`.dbp` 包自动解包。
+> ★ 文件夹里放单个 `.cs` 文件也会被自动归一化为 `<名字>/main.cs`；`.shpkg` 包（旧版 `.dbp`）自动解包。
+> ★ 安全（v2）：**完全编程（XAML + 代码后置）对所有来源开放**，但外来来源编译前必须过**受限 XAML 方言**校验
+>   （结构白名单，见 `WidgetCompiler.CheckXamlDialect`）——保留"完全编程"这一海床核心能力，砍掉"凭空造对象/按名调方法"。
+>   外来代码的特权能力（打开外部/通知/划词/AI/最近使用）只能走窄接口 `HostCapabilities`，宿主内部 API 已被沙箱拦截。
+>   **信任只看两件事**：宿主写的来源标记（`.origin` / `trustedSource:false`）或用户在界面上的显式信任记录（id + 内容哈希）；
+>   包内自述 `official`/`author`/`trustedSource:true` 一概不算数。你自己或 AI **直接写进 seabed 的代码默认受信**
+>   （海床初衷：文件夹即真相源，本地编程不设限、零摩擦）。
 
 ---
 

@@ -130,9 +130,20 @@ namespace ShoreHue.UI.Settings
                     EnableWebSearch = chkAiWebSearch.IsChecked ?? false,
                     EnableReasoning = chkAiReasoning.IsChecked ?? false
                 };
-                ShoreHue.Core.Services.Ai.AiSettingsStore.Save(ai);
+                string err = ShoreHue.Core.Services.Ai.AiSettingsStore.Save(ai);
+                if (err.Length > 0)
+                {
+                    // 如实提示：不要把"没保存成功"显示成保存成功
+                    txtAiTestStatus.Text = err;
+                    txtAiTestStatus.Foreground = new SolidColorBrush(Color.FromRgb(200, 80, 70));
+                }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Error("保存 AI 设置失败", ex);
+                txtAiTestStatus.Text = "保存 AI 设置失败：" + ex.Message;
+                txtAiTestStatus.Foreground = new SolidColorBrush(Color.FromRgb(200, 80, 70));
+            }
         }
     }
 }

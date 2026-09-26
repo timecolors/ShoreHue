@@ -29,6 +29,7 @@ namespace ShoreHue.Core.Infrastructure.Logging
                 if (_initialized) return;
 
                 string dir = string.IsNullOrWhiteSpace(logDirectory) ? AppPaths.LogDirectory : logDirectory;
+                // 刻意不记日志：日志系统本身还没初始化（这里失败会走内存/空操作降级，见类注释"绝不影响应用启动"）
                 try { Directory.CreateDirectory(dir); } catch { }
 
                 var config = new LoggerConfiguration()
@@ -122,6 +123,7 @@ namespace ShoreHue.Core.Infrastructure.Logging
             {
                 if (_logger != null)
                 {
+                    // 刻意不记日志：正在关闭日志系统，且记日志本身就会再走一遍这里
                     try { Info("日志系统关闭"); } catch { }
                     try { _logger.Dispose(); } catch { }
                     _logger = null;

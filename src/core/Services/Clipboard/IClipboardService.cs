@@ -50,6 +50,9 @@ namespace ShoreHue.src.core.Services.Clipboard
         /// </summary>
         void CopyToClipboard(ClipboardManager.ClipboardItem item);
 
+        /// <summary>只把纯文本回填到剪贴板（借鉴 Win+V 的"粘贴为纯文本"：网页/编辑器复制来的内容常带一堆格式）。</summary>
+        void CopyToClipboardPlainText(ClipboardManager.ClipboardItem item);
+
         /// <summary>
         /// 收藏/取消收藏（收藏条目不被自动清理）
         /// </summary>

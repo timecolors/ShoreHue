@@ -1,7 +1,7 @@
 <UserControl x:Class="ShoreHue.UI.Widgets.Calculator.CalculatorWidget"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:loc="clr-namespace:ShoreHue.UI.Localization">
-    <Grid Margin="2">
+    <Grid x:Name="RootGrid" Focusable="True" KeyDown="Root_KeyDown" Margin="2">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>

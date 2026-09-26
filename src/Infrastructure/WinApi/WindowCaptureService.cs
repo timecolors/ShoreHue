@@ -1,4 +1,5 @@
 using System;
+using ShoreHue.Core.Infrastructure.Logging;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
@@ -149,8 +150,10 @@ namespace ShoreHue.Infrastructure.WinApi
                 source.Freeze();
                 return source;
             }
-            catch
+            catch (Exception ex)
             {
+                // 返回 null → 调用方显示占位（窗口镜像/缩略图空白，用户可见）
+                LogManager.Debug($"[窗口捕获] 截取窗口位图失败（显示占位）：{ex.Message}");
                 return null;
             }
             finally
@@ -194,7 +197,9 @@ namespace ShoreHue.Infrastructure.WinApi
 
         public static void SetForeground(IntPtr hwnd)
         {
-            try { SetForegroundWindow(hwnd); } catch { }
+            // 尽力而为：前台锁（Windows 限制）会让这次置前无效，不影响其它逻辑
+            try { SetForegroundWindow(hwnd); }
+            catch (Exception ex) { LogManager.Debug($"[窗口捕获] 置前窗口失败（无害）：{ex.Message}"); }
         }
 
         public static void SendMouseEvent(IntPtr hwnd, MouseMessage message, int clientX, int clientY)

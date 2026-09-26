@@ -22,6 +22,7 @@ namespace ShoreHue.UI.Seabed
             ["panel-quicksettings"] = QuickSettingsSource,
             ["panel-taskbar-feature"] = TaskbarPanelSource,
             ["panel-ai"] = AiPanelSource,
+            ["panel-apphelper"] = AppHelperPanelSource,
             ["panel-windowcontrol"] = WindowControlPanelSource
         };
 
@@ -33,7 +34,7 @@ namespace ShoreHue.UI.Seabed
         public static readonly System.Collections.Generic.HashSet<string> PanelKeys = new()
         {
             "panel-notification", "panel-recent", "panel-quicksettings",
-            "panel-taskbar-feature", "panel-ai", "panel-windowcontrol"
+            "panel-taskbar-feature", "panel-ai", "panel-apphelper", "panel-windowcontrol"
         };
 
         /// <summary>计时器（纯代码版，功能等价：正计时/倒计时/闹钟、预设、进度、系统提醒）。</summary>
@@ -695,7 +696,6 @@ namespace ShoreHue.Builtin
     {
         private readonly AiChatClient _client = new();
         private CancellationTokenSource? _cts;
-        public static event Action? OpenSettingsRequested;
 
         private TextBlock _sourceText, _resultText, _stateText;
         private Button _btnCopy;
@@ -717,7 +717,7 @@ namespace ShoreHue.Builtin
 
             var title = new TextBlock { Text = "划词翻译", FontWeight = FontWeights.SemiBold, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
             var btnSettings = new Button { Content = "设置", Style = flatBtn, Padding = new Thickness(8, 2, 8, 2), Height = 24 };
-            btnSettings.Click += (_, _) => OpenSettingsRequested?.Invoke();
+            btnSettings.Click += (_, _) => ShoreHue.UI.Widgets.HostCapabilities.OpenSettingsPage("tabAI");
             var head = new Grid { Margin = new Thickness(0, 0, 0, 8) };
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -951,7 +951,7 @@ namespace ShoreHue.Builtin
         private static SolidColorBrush TabBrush(string color)
         {
             try { if (!string.IsNullOrEmpty(color)) return new SolidColorBrush((Color)ColorConverter.ConvertFromString(color)); } catch { }
-            return new SolidColorBrush(Color.FromRgb(255, 255, 153));
+            return new SolidColorBrush(Color.FromRgb(0, 0, 0));
         }
 
         private void Tab_Click(object sender, MouseButtonEventArgs e)
@@ -984,7 +984,7 @@ namespace ShoreHue.Builtin
         {
             try
             {
-                if (string.IsNullOrEmpty(hex)) return System.Drawing.Color.FromArgb(255, 255, 255, 153);
+                if (string.IsNullOrEmpty(hex)) return System.Drawing.Color.FromArgb(255, 0, 0, 0);
                 if (hex.StartsWith("#")) hex = hex.Substring(1);
                 if (hex.Length == 6)
                     return System.Drawing.Color.FromArgb(255,
@@ -993,7 +993,7 @@ namespace ShoreHue.Builtin
                         Convert.ToByte(hex.Substring(4, 2), 16));
             }
             catch { }
-            return System.Drawing.Color.FromArgb(255, 255, 255, 153);
+            return System.Drawing.Color.FromArgb(255, 0, 0, 0);
         }
     }
 }
@@ -1188,14 +1188,16 @@ private void UpdateStatus(string? msg)
 }
 """;
 
-        /// <summary>通知坞（纯代码版，功能等价：展示系统通知、点击打开、一键清空）。</summary>
+        /// <summary>通知坞（纯代码版：按应用分组、每条可单独关闭、点击打开、一键清空）。</summary>
         private const string NotificationDockSource = """
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using ShoreHue.Infrastructure.WinApi;
+using ShoreHue.Builtin.Notifications;
 using ShoreHue.UI.Widgets;
 
 namespace ShoreHue.Builtin
@@ -1204,11 +1206,12 @@ namespace ShoreHue.Builtin
     {
         private readonly StackPanel _items = new();
         private readonly TextBlock _title = new() { FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(238, 238, 238)) };
+        private readonly HashSet<string> _dismissed = new(StringComparer.Ordinal);
 
         public NotificationDockPanel()
         {
-            var clear = new Button { Content = "清空", FontSize = 11, Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(12, 0, 0, 0) };
-            clear.Click += (_, _) => ToastMonitor.ClearAll();
+            var clear = new Button { Content = "清空", FontSize = 11, Padding = new Thickness(10, 4, 10, 4), Margin = new Thickness(12, 0, 0, 0), Style = TryFindResource("FlatButton") as Style };
+            clear.Click += (_, _) => { _dismissed.Clear(); HostCapabilities.ClearNotifications(); Refresh(); };
 
             var header = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 0, 2, 8) };
             header.Children.Add(_title);
@@ -1228,37 +1231,86 @@ namespace ShoreHue.Builtin
             Content = root;
 
             Refresh();
-            ToastMonitor.Changed += OnChanged;
-            Unloaded += (_, _) => ToastMonitor.Changed -= OnChanged;
+            // ★ 订阅走 Loaded/Unloaded：面板实例会被编译缓存复用，只在构造函数里订阅会在首次
+            //   Unloaded 退订后再也不订阅（面板还在，但不再跟着新通知更新）。
+            Loaded += (_, _) => { HostCapabilities.NotificationsChanged -= OnChanged; HostCapabilities.NotificationsChanged += OnChanged; Refresh(); };
+            Unloaded += (_, _) => HostCapabilities.NotificationsChanged -= OnChanged;
         }
 
         private void OnChanged() => Dispatcher.BeginInvoke(new Action(Refresh));
 
+        // ★ 分组与「单条关闭」的决策全在纯类 NotificationGrouping 里，这里只负责画出来 —— 逻辑才可单测。
         private void Refresh()
         {
+            // Key 用宿主稳定 Id：同内容的新通知不会被旧的关闭标记误吞
+            var rows = HostCapabilities.Notifications
+                .Select(n => new NotificationRow(n.Id, string.IsNullOrWhiteSpace(n.AppName) ? "系统" : n.AppName, n.Message ?? "", n.TimeText ?? ""))
+                .ToList();
+
+            NotificationGrouping.PruneDismissed(_dismissed, rows);
+            var groups = NotificationGrouping.Group(rows, _dismissed);
+
             _items.Children.Clear();
-            int count = ToastMonitor.Notifications.Count;
-            _title.Text = count > 0 ? "通知坞（" + count + "）" : "通知坞（空）";
-            foreach (var n in ToastMonitor.Notifications)
+            int visible = groups.Sum(g => g.Rows.Count);
+            _title.Text = visible > 0 ? "通知坞（" + visible + "）" : "通知坞（空）";
+
+            foreach (var group in groups)
             {
-                var app = new TextBlock { Text = n.AppName, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(43, 136, 216)), TextTrimming = TextTrimming.CharacterEllipsis };
-                var msg = new TextBlock { Text = n.Message, FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(238, 238, 238)), TextWrapping = TextWrapping.Wrap, MaxHeight = 60, Margin = new Thickness(0, 2, 0, 0) };
-                var time = new TextBlock { Text = n.TimeText, FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(102, 102, 102)), VerticalAlignment = VerticalAlignment.Top };
-
-                var grid = new Grid();
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var left = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
-                left.Children.Add(app);
-                left.Children.Add(msg);
-                grid.Children.Add(left);
-                Grid.SetColumn(time, 1);
-                grid.Children.Add(time);
-
-                var row = new Border { Child = grid, Background = Brushes.Transparent, Cursor = Cursors.Hand, Padding = new Thickness(2, 1, 2, 1), Margin = new Thickness(0, 0, 0, 4) };
-                row.MouseLeftButtonUp += (_, _) => ToastMonitor.OpenApp(n);
-                _items.Children.Add(row);
+                _items.Children.Add(new TextBlock
+                {
+                    Text = group.AppLabel,
+                    FontSize = 10,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(Color.FromRgb(43, 136, 216)),
+                    Margin = new Thickness(2, 6, 2, 2)
+                });
+                foreach (var row in group.Rows) _items.Children.Add(BuildRow(row));
             }
+        }
+
+        private FrameworkElement BuildRow(NotificationRow row)
+        {
+            var msg = new TextBlock { Text = row.Message, FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(238, 238, 238)), TextWrapping = TextWrapping.Wrap, LineHeight = 16, MaxHeight = 64 };
+            var time = new TextBlock { Text = row.Time, FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(102, 102, 102)), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 0, 4, 0) };
+            var close = new Button
+            {
+                Content = "✕", Tag = row.Key, FontSize = 10, Width = 20, Height = 20, Padding = new Thickness(0),
+                BorderThickness = new Thickness(0), Background = Brushes.Transparent,
+                Foreground = new SolidColorBrush(Color.FromRgb(153, 153, 153)),
+                Cursor = Cursors.Hand, ToolTip = "关闭这一条", Style = TryFindResource("IconButton") as Style
+            };
+            close.Click += (_, e) => { e.Handled = true; CloseOne(row.Key); };
+
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.Children.Add(msg);
+            Grid.SetColumn(time, 1);
+            grid.Children.Add(time);
+            Grid.SetColumn(close, 2);
+            grid.Children.Add(close);
+
+            var border = new Border { Tag = row.Key, Child = grid, Background = Brushes.Transparent, Cursor = Cursors.Hand, Padding = new Thickness(2, 1, 2, 1), Margin = new Thickness(0, 0, 0, 4) };
+            border.MouseLeftButtonUp += (_, _) => OpenOne(row.Key);
+            return border;
+        }
+
+        /// <summary>关掉一条：先记本地（界面立刻正确），再从宿主移除（重开面板也不会回来）。</summary>
+        private void CloseOne(string key)
+        {
+            if (NotificationGrouping.Dismiss(_dismissed, new NotificationRow(key, "", "", "")))
+            {
+                var item = HostCapabilities.Notifications.FirstOrDefault(n => n.Id == key);
+                if (item != null) HostCapabilities.RemoveNotification(item);
+            }
+            Refresh();
+        }
+
+        private void OpenOne(string key)
+        {
+            var item = HostCapabilities.Notifications.FirstOrDefault(n => n.Id == key);
+            if (item != null) HostCapabilities.OpenNotification(item);
         }
 
         public string Name => "通知坞";
@@ -1272,6 +1324,7 @@ namespace ShoreHue.Builtin
         /// <summary>快捷设置（纯代码版，功能等价：音量/亮度/蓝牙/Wi-Fi/热点/打开系统设置）。</summary>
         private const string QuickSettingsSource = """
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -1304,6 +1357,7 @@ namespace ShoreHue.Builtin
         private readonly Border _hotspotRow = new() { Visibility = Visibility.Collapsed };
         private readonly TextBlock _hotspotState = new() { FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(119, 119, 119)) };
         private readonly Button _hotspotBtn = new() { Content = "…", Width = 56, Height = 26, FontSize = 12 };
+        private readonly Dictionary<string, Button> _perfButtons = new();
 
         public QuickSettingsPanel()
         {
@@ -1351,9 +1405,14 @@ namespace ShoreHue.Builtin
                 catch { }
             };
 
+            // ★ 用主题里的扁平按钮样式（与宿主 QuickSettingsView 同款），避免文件化后变成默认灰按钮
+            _mute.Style = TryFindResource("FlatButton") as Style;
+            _btBtn.Style = TryFindResource("FlatButton") as Style;
+            _wifiBtn.Style = TryFindResource("FlatButton") as Style;
+            _hotspotBtn.Style = TryFindResource("FlatButton") as Style;
             _brightnessRow.Child = Card(Row(Icon("☀"), _brightness, _brightnessText));
 
-            var settings = new Button { Content = "系统设置", FontSize = 12, Height = 26, Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(6, 0, 0, 0) };
+            var settings = new Button { Content = "系统设置", FontSize = 12, Height = 26, Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(6, 0, 0, 0), Style = TryFindResource("FlatButton") as Style };
             settings.Click += (_, _) => SystemLauncher.OpenWindowsSettings();
 
             var rows = new StackPanel();
@@ -1362,6 +1421,7 @@ namespace ShoreHue.Builtin
             rows.Children.Add(Card(StateRow("蓝牙", _btState, _btBtn)));
             rows.Children.Add(Card(StateRow("Wi-Fi", _wifiState, _wifiBtn)));
             rows.Children.Add(_hotspotRow);
+            rows.Children.Add(BuildPerfRow());
             var bottom = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 6, 0, 0) };
             bottom.Children.Add(settings);
             rows.Children.Add(bottom);
@@ -1382,6 +1442,7 @@ namespace ShoreHue.Builtin
                 await InitBrightnessAsync();
                 await RefreshStatesAsync();
                 RefreshVolume();
+                RefreshPerfButtons();
                 _timer.Start();
             };
             Unloaded += (_, _) => _timer.Stop();
@@ -1440,6 +1501,42 @@ namespace ShoreHue.Builtin
             }
         }
 
+        // ★ ShoreHue 性能模式（与宿主 QuickSettingsView 对齐）：顺滑 / 正常 / 省电 / 自定义
+        private FrameworkElement BuildPerfRow()
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(2, 0, 0, 6) };
+            foreach (var pair in new (string Label, string Tag)[] { ("顺滑", "Smooth"), ("正常", "Normal"), ("省电", "PowerSaver"), ("自定义", "Custom") })
+            {
+                var b = new Button { Content = pair.Label, Tag = pair.Tag, FontSize = 12, Height = 26, Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(0, 0, 6, 0), Style = TryFindResource("FlatButton") as Style };
+                b.Click += (_, _) => ApplyPerfMode(pair.Tag);
+                _perfButtons[pair.Tag] = b;
+                row.Children.Add(b);
+            }
+            return Card(row);
+        }
+
+        private void ApplyPerfMode(string mode)
+        {
+            if (mode == "Custom") return;
+            var s = HostCapabilities.Settings;
+            if (s == null || s.PerformanceMode == mode) return;
+            s.SetPerformanceMode(mode);
+            RefreshPerfButtons();
+        }
+
+        private void RefreshPerfButtons()
+        {
+            var s = HostCapabilities.Settings;
+            string mode = s == null ? "Normal" : s.PerformanceMode;
+            foreach (var kv in _perfButtons)
+            {
+                bool active = kv.Key == mode;
+                kv.Value.Style = (TryFindResource(active ? "AccentButton" : "FlatButton") as Style) ?? kv.Value.Style;
+                kv.Value.Opacity = active ? 1.0 : 0.55;
+                kv.Value.FontWeight = active ? FontWeights.SemiBold : FontWeights.Normal;
+            }
+        }
+
         private static TextBlock Icon(string s) => new() { Text = s, FontSize = 14, Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
 
         private static Border Card(UIElement child) => new()
@@ -1474,7 +1571,7 @@ namespace ShoreHue.Builtin
 
         public string Name => "快捷设置";
         public UserControl CreateView() => this;
-        public void OnActivated() { }
+        public void OnActivated() { RefreshPerfButtons(); }
         public void OnDeactivated() { _timer.Stop(); }
     }
 }
@@ -1530,11 +1627,14 @@ namespace ShoreHue.Builtin
 
         public RecentItemsPanel()
         {
+            _btnFiles.Style = TryFindResource("FlatButton") as Style;
+            _btnApps.Style = TryFindResource("FlatButton") as Style;
+            _btnWebs.Style = TryFindResource("FlatButton") as Style;
             _btnFiles.Click += (_, _) => ShowTab(Kind.File);
             _btnApps.Click += (_, _) => ShowTab(Kind.App);
             _btnWebs.Click += (_, _) => ShowTab(Kind.Web);
 
-            var refresh = new Button { Content = "⟳", FontSize = 12, Width = 30, Height = 26, ToolTip = "刷新" };
+            var refresh = new Button { Content = "⟳", FontSize = 12, Width = 30, Height = 26, ToolTip = "刷新", Style = TryFindResource("IconButton") as Style };
             refresh.Click += (_, _) => RefreshAll();
 
             var title = new TextBlock { Text = "最近使用", FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(238, 238, 238)) };
@@ -1554,7 +1654,7 @@ namespace ShoreHue.Builtin
             tabs.Children.Add(_btnWebs);
 
             var input = new TextBox { FontSize = 11, VerticalContentAlignment = VerticalAlignment.Center, ToolTip = "输入网址，回车收藏" };
-            var addBtn = new Button { Content = "收藏", FontSize = 11, Margin = new Thickness(6, 0, 0, 0) };
+            var addBtn = new Button { Content = "收藏", FontSize = 11, Margin = new Thickness(6, 0, 0, 0), Style = TryFindResource("FlatButton") as Style };
             addBtn.Click += (_, _) => AddWeb(input.Text);
             input.KeyDown += (_, e) => { if (e.Key == Key.Enter) { AddWeb(input.Text); e.Handled = true; } };
             var webGrid = new Grid();
@@ -1807,21 +1907,8 @@ namespace ShoreHue.Builtin
                 return;
             }
             var inner = new TaskbarView(shortcuts, settings);
-
-            // 示例：外层加一行自定义标题（不需要可删掉）
-            var header = new TextBlock
-            {
-                Text = "我的任务栏",
-                FontSize = 11,
-                Foreground = new SolidColorBrush(Color.FromRgb(138, 138, 138)),
-                Margin = new Thickness(4, 2, 4, 4)
-            };
-
-            var root = new DockPanel();
-            DockPanel.SetDock(header, Dock.Top);
-            root.Children.Add(header);
-            root.Children.Add(inner);
-            Content = root;
+            // ★ 不加自定义标题行：它挤占标签空间，属多余装饰
+            Content = inner;
         }
 
         public string Name => "任务栏";
@@ -1842,16 +1929,37 @@ using ShoreHue.UI.Widgets;
 namespace ShoreHue.Builtin
 {
     // AI 助手（薄封装）：复用 ShoreHue 内置 AI 聊天面板（流式对话/文件/输出到光标）。
-    // 想自定义：把 root 替换为你自己的布局，在 ai 前后叠加内容。
+    // ★ 面板实例会被编译缓存复用，所以设置刷新放 OnActivated（每次显示都刷），不是构造函数。
     public class AiPanel : UserControl, IWidget
     {
-        public AiPanel()
-        {
-            var ai = new AiChatView();
-            Content = ai;
-        }
+        private readonly AiChatView _view = new();
+
+        public AiPanel() { Content = _view; }
 
         public string Name => "AI 助手";
+        public UserControl CreateView() => this;
+        public void OnActivated() { _view.RefreshSettings(); }
+        public void OnDeactivated() { }
+    }
+}
+""";
+
+        /// <summary>应用辅助（薄封装版：复用宿主应用辅助视图）。</summary>
+        private const string AppHelperPanelSource = """
+using System.Windows.Controls;
+using ShoreHue.UI.AppHelper;
+using ShoreHue.UI.Widgets;
+
+namespace ShoreHue.Builtin
+{
+    // 应用辅助（薄封装）：媒体控制 / 窗口镜像（画中画）/ 本地视频播放。
+    public class AppHelperPanel : UserControl, IWidget
+    {
+        private readonly AppHelperView _view = new();
+
+        public AppHelperPanel() { Content = _view; }
+
+        public string Name => "应用辅助";
         public UserControl CreateView() => this;
         public void OnActivated() { }
         public void OnDeactivated() { }

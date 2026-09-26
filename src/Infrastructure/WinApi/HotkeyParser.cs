@@ -86,9 +86,26 @@ namespace ShoreHue.Infrastructure.WinApi
         }
 
         /// <summary>
-        /// 把 WPF 按键事件转换为规范热键字符串（如 "Ctrl+Alt+Q"）。
-        /// 纯修饰键或没有修饰键时返回空字符串（表示不可用）。
+        /// 判断一次按键是否命中某个快捷键设置（如 "Ctrl+N"）。
+        /// ★ 放在这里而不是各控件自己写：格式解析（TryParse）与"当前按键转成同样的编码"必须用
+        ///   同一套口径，否则设置里存了什么、控件就该认什么这件事会慢慢漂移。
+        ///   便签面板的快捷键就是这么用的（KeyDown 冒泡到根 → Matches）。
         /// </summary>
+        public static bool Matches(string? text, ModifierKeys modifiers, Key key)
+        {
+            if (!TryParse(text, out uint mods, out uint vk)) return false;
+
+            uint cur = 0;
+            if ((modifiers & ModifierKeys.Control) != 0) cur |= MOD_CONTROL;
+            if ((modifiers & ModifierKeys.Alt) != 0) cur |= MOD_ALT;
+            if ((modifiers & ModifierKeys.Shift) != 0) cur |= MOD_SHIFT;
+            if ((modifiers & ModifierKeys.Windows) != 0) cur |= MOD_WIN;
+
+            return cur == mods && (uint)KeyInterop.VirtualKeyFromKey(key) == vk;
+        }
+
+        /// <summary>把 WPF 按键事件转换为规范热键字符串（如 "Ctrl+Alt+Q"）。
+        /// 纯修饰键或没有修饰键时返回空字符串（表示不可用）。</summary>
         public static string Format(Key key, ModifierKeys modifiers)
         {
             string main = GetKeyName(key);

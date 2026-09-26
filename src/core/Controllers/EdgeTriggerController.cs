@@ -1,6 +1,7 @@
 using ShoreHue.Animation;
 using ShoreHue.Core.Detection;
 using ShoreHue.Core.Services.Configuration;
+using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.Infrastructure.Utils;
 using System;
 using System.Windows;
@@ -158,6 +159,7 @@ namespace ShoreHue.Core.Controllers
                 }
                 catch
                 {
+                    // 尽力而为：坐标系算不出来就保持当前位置（跟随位置每帧都会算，记日志会刷屏）
                     return (_window.Left, _window.Top);
                 }
             };
@@ -226,7 +228,12 @@ namespace ShoreHue.Core.Controllers
                 double? m = ps?.CompositionTarget?.TransformToDevice.M11;
                 return (m.HasValue && m.Value > 0) ? m.Value : 1.0;
             }
-            catch { return 1.0; }
+            catch (Exception ex)
+            {
+                // 取不到 DPI 就按 100% 算（定位会偏一点，但不至于不显示）
+                LogManager.Debug($"[区域] 读取 DPI 缩放失败（按 100% 处理）：{ex.Message}");
+                return 1.0;
+            }
         }
 
         /// <summary>停止贴边跟随（渲染帧循环在无 cling 时停止）。</summary>
@@ -414,7 +421,7 @@ namespace ShoreHue.Core.Controllers
                     (left, top) = CalculatePosition(region, mx, my, sw, sh, w, h);
                 }
 
-                ShoreHue.Core.Infrastructure.Logging.LogManager.Debug(
+                LogManager.Debug(
                     $"键盘呼出 region={region} type={type} key={key} → 目标({left:0},{top:0}) 屏幕{sw:0}x{sh:0}");
                 _visibilityController.ShowAt(left, top, _currentEdge);
                 _visibilityController.CurrentRegionKey = key;
@@ -423,7 +430,7 @@ namespace ShoreHue.Core.Controllers
             }
             catch (Exception ex)
             {
-                ShoreHue.Core.Infrastructure.Logging.LogManager.Error("键盘呼出区域面板异常: " + region, ex);
+                LogManager.Error("键盘呼出区域面板异常: " + region, ex);
             }
         }
 
@@ -590,6 +597,7 @@ namespace ShoreHue.Core.Controllers
             top = Math.Max(0, Math.Min(top, screenH - h));
             // ★ 飞行到达后位置+尺寸平滑收尾（物理收敛），替代原子跳转——落地不"顿"一下
             _shapeAnimator.SetPositionAndSizeTarget(left, top, w, h);
+
 
             // 以实际生效尺寸回填缓存（WPF 最小尺寸等可能钳制目标值）
             _cachedWidth = _window.Width;
@@ -759,7 +767,7 @@ namespace ShoreHue.Core.Controllers
 
                 // ★ 不回填 _cachedWidth/Height：形变进行中 _window.Height 是动画中间值，
                 //   回填会把"目标尺寸"污染成中间值 → provider 用错误尺寸算位置 → 中心错位。
-                //   目标尺寸在 GetTargetSizeForRegion 时已写入 _cachedWidth/Height（373-375/592-593 行）。
+                //   目标尺寸已由 GetTargetSizeForRegion 写入 _cachedWidth/_cachedHeight（见该方法内两处赋值）。
             }
             else
             {
@@ -1232,7 +1240,11 @@ private string GetRegionShapeSetting(string key)
                     return _settings.GetRegionShape(parts[0], parts[1]);
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 形状读不出来 → 回落到默认形状（面板仍能显示）
+                LogManager.Debug($"[区域] 读取区域形状失败（按默认形状处理）key={key}：{ex.Message}");
+            }
             return "Default";
         }
 

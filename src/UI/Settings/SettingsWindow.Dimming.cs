@@ -1,5 +1,6 @@
 using ShoreHue.Core.Services;
 using ShoreHue.Core.Services.Ai;
+using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.Core.Services.Configuration;
 using ShoreHue.Infrastructure.Utils;
 using ShoreHue.Infrastructure.WinApi;
@@ -26,7 +27,11 @@ namespace ShoreHue.UI.Settings
         public void RefreshPresetDimming()
         {
             try { ApplyOverrideDimming(); }
-            catch { }
+            catch (Exception ex)
+            {
+                // 变灰标记没刷新 → 用户看不出哪些设置被预设覆盖了
+                LogManager.Warning($"[设置] 刷新预设覆盖变灰失败（界面标记可能过期）：{ex.Message}");
+            }
         }
 
         // ========== 预设覆盖 → 设置控件变灰（字段级驱动，铺开全部页签）+ 两击解除 ==========
@@ -54,7 +59,9 @@ namespace ShoreHue.UI.Settings
             // 剪贴板与便签
             ("ClipboardMaxCount", "sldClipboardMax"), ("ClipboardDisplayLength", "sldClipboardDisplay"),
             ("ClipboardImageMaxWidth", "sldClipImageMax"), ("ClipboardImageCacheLimitMB", "sldClipImageCacheLimit"),
+            ("ClipboardKeyboardNav", "chkClipKeyboardNav"), ("ClipboardShowSourceApp", "chkClipShowSourceApp"),
             ("DefaultNoteColor", "txtDefaultNoteColor"), ("NoteShowTitleByDefault", "chkNoteShowTitle"),
+            ("NoteHotkeyNew", "txtNoteHotkeyNew"), ("NoteHotkeyDelete", "txtNoteHotkeyDelete"), ("NoteHotkeyNext", "txtNoteHotkeyNext"),
             // 自适应 / 勿扰
             ("AutoFitOnTrigger", "chkAutoFitOnTrigger"), ("RememberDndMode", "chkRememberDndMode"),
             // 动画设置
@@ -80,7 +87,7 @@ namespace ShoreHue.UI.Settings
             ("StatusShowFps", "chkStatusFps"), ("StatusShowVolume", "chkStatusVolume"), ("StatusShowNetwork", "chkStatusNetwork"),
             ("StatusShowBattery", "chkStatusBattery"), ("StatusShowWeather", "chkStatusWeather"),
             // 天气 / 划词
-            ("WeatherCity", "txtWeatherCity"), ("TextAiHotkey", "txtTextAiHotkey"),
+            ("WeatherCity", "txtWeatherCity"), ("TextAiHotkey", "txtTextAiHotkey"), ("TextAiTargetLanguage", "txtTextAiTargetLang"),
             // 区域面板自定义（16）
             ("RegionPanel_Top_Left", "cmbPanel_Top_Left"), ("RegionPanel_Top_Center", "cmbPanel_Top_Center"), ("RegionPanel_Top_Right", "cmbPanel_Top_Right"),
             ("RegionPanel_Bottom_Left", "cmbPanel_Bottom_Left"), ("RegionPanel_Bottom_Center", "cmbPanel_Bottom_Center"), ("RegionPanel_Bottom_Right", "cmbPanel_Bottom_Right"),
@@ -224,12 +231,16 @@ namespace ShoreHue.UI.Settings
                 if (changed)
                 {
                     _settings.AppliedPresets = overrides;
-                    _settings.Reload();
+                    _settings.Host().Reload();
                     ApplyOverrideDimming();
                     RefreshSeabedIfVisible();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 两击解除覆盖失败 → 用户以为解除了其实没有
+                LogManager.Warning($"[设置] 解除预设覆盖失败：{ex.Message}");
+            }
         }
 
         /// <summary>设置页解除覆盖后，同步刷新海床页（树高亮/删除线状态）。</summary>
@@ -242,7 +253,11 @@ namespace ShoreHue.UI.Settings
                     bp.RefreshAll();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：海床页没刷到新状态（切到该页时会重新加载）
+                LogManager.Debug($"[设置] 同步刷新海床页失败（切页时会重载）：{ex.Message}");
+            }
         }
     }
 }

@@ -2,6 +2,7 @@ using ShoreHue.Animation;
 using ShoreHue.Core.Detection;
 using ShoreHue.Core.Services;
 using ShoreHue.Core.Services.Configuration;
+using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.Infrastructure.Utils;
 using System;
 using System.Windows;
@@ -29,6 +30,10 @@ namespace ShoreHue.Core.Controllers
         // ★ 热键钉住：Ctrl+Alt+B 呼出的面板不随鼠标位置自动隐藏，
         //   直到再次按热键、鼠标移到边缘/面板、或进入勿扰模式。
         private bool _hotkeyPinned;
+
+        // ★ 临时保持显示：任务栏分组弹层（Popup）是**独立窗口**，鼠标移到它上面时不在面板矩形内
+        //   → 面板会以为自己被离开了而自动收起。弹层展开期间置位，避免"鼠标一放上去任务栏就没了"。
+        private bool _transientKeepVisible;
 
         // 显示状态（目标态）：避免定时器每 30ms 重复触发动画目标导致闪烁/透明度不稳
         private bool _visible;
@@ -99,6 +104,9 @@ namespace ShoreHue.Core.Controllers
         /// <summary>是否处于热键钉住状态。</summary>
         public bool IsHotkeyPinned => _hotkeyPinned;
 
+        /// <summary>分组弹层等"面板之外的浮层"展开/收起时调用（true=期间别自动收面板）。</summary>
+        public void SetTransientKeepVisible(bool keep) => _transientKeepVisible = keep;
+
         public void Show(string edge = "")
         {
             CancelHide();
@@ -107,6 +115,9 @@ namespace ShoreHue.Core.Controllers
 
             if (_visible && _mainPanel.Opacity > 0.55) return;
             _visible = true;
+            // ★ 面板每一次"从隐藏变为显示"都留一条 Debug：排查"面板莫名弹出"时，这条日志是唯一能对上时间的证据
+            //   （内容没变时不会重新 LoadContent，光看内容日志会以为什么都没发生）
+            LogManager.Debug($"[面板] 显示触发 · Show(edge={edge})");
             _shapeAnimator.SetOpacityTarget(_opacity);
 
             PanelShown?.Invoke();
@@ -144,6 +155,7 @@ namespace ShoreHue.Core.Controllers
             }
 
             _visible = true;
+            LogManager.Debug($"[面板] 显示触发 · ShowAt({(int)left},{(int)top}, edge={edge})");
             _lastAnchorLeft = left;
             _lastAnchorTop = top;
             // ★ 跨边修复：面板若不在目标边附近（如上次在上边外隐藏），
@@ -211,7 +223,11 @@ namespace ShoreHue.Core.Controllers
                 // 跨边：先原子瞬移到目标边的屏幕外，再滑入
                 _shapeAnimator.JumpTo(preLeft, preTop, w, h);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：瞬移失败只是滑入起点不同（视觉差异），面板照常显示
+                LogManager.Debug($"[面板] 跨边瞬移失败（按当前位置滑入）：{ex.Message}");
+            }
         }
 
         /// <summary>启动时窗口整体透明（Opacity=0），首次显示时恢复。</summary>
@@ -222,12 +238,17 @@ namespace ShoreHue.Core.Controllers
                 // ★ 穿透提示期间（SuppressOpacityReset=true）不重置窗口透明度（穿透时窗口半透明提示）
             if (_window.Opacity < 1.0 && !SuppressOpacityReset) _window.Opacity = 1.0;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 恢复不了不透明度 → 面板可能整块透明（用户以为"呼不出来"），必须留痕
+                LogManager.Warning($"[面板] 恢复窗口不透明度失败（面板可能整块透明）：{ex.Message}");
+            }
         }
 
         public void Hide()
         {
             if (_lockManager.IsLocked) return;
+            if (_transientKeepVisible) return;   // ★ 浮层展开期间不自动收
             CancelHide();
 
             if (!_visible && _mainPanel.Opacity <= 0.01) return;
@@ -251,6 +272,7 @@ namespace ShoreHue.Core.Controllers
         public void ForceHide()
         {
             _hotkeyPinned = false;
+            _transientKeepVisible = false;   // 用户明确要收起（热键/勿扰）→ 浮层保持也一并解除
             if (_lockManager.IsLocked) return;
             if (!_visible && _mainPanel.Opacity <= 0.01) return;
 
@@ -276,6 +298,7 @@ namespace ShoreHue.Core.Controllers
         {
             if (_lockManager.IsLocked) return;
             if (_hotkeyPinned) return; // ★ 热键呼出后面板不自动隐藏
+            if (_transientKeepVisible) return; // ★ 分组弹层展开期间不自动隐藏
             if (Mouse.LeftButton == MouseButtonState.Pressed) return;
             if (_mouseLeaveDetector.IsMouseNearPanel()) return;
             if (IsVisible == false) return;

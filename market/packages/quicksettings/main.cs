@@ -81,7 +81,7 @@ namespace ShoreHue.Builtin
             _brightnessRow.Child = Card(Row(Icon("☀"), _brightness, _brightnessText));
 
             var settings = new Button { Content = "系统设置", FontSize = 12, Height = 26, Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(6, 0, 0, 0) };
-            settings.Click += (_, _) => SystemLauncher.OpenWindowsSettings();
+            settings.Click += (_, _) => ShoreHue.UI.Widgets.HostCapabilities.OpenWindowsSettingsPage();
 
             var rows = new StackPanel();
             rows.Children.Add(Card(Row(Icon("♪"), _volume, _volumeText, _mute)));

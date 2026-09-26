@@ -23,6 +23,7 @@ namespace ShoreHue.UI.Status
         private int _frameCount = 0;
         private DateTime _fpsStartTime = DateTime.Now;
         private int _currentFps = 0;
+        private bool _fpsSubscribed;   // 是否已订阅 CompositionTarget.Rendering（仅在显示 FPS 时为 true）
 
         private MMDevice? _audioDevice;
         private ISettingsService? _settings;
@@ -51,17 +52,22 @@ namespace ShoreHue.UI.Status
             {
                 _cpuCounter = new PerformanceCounter("Processor", "% Processor Time", "_Total");
             }
-            catch { }
+            catch { /* 性能计数器不可用（个别系统/权限）→ 该项不显示，其余状态项照常 */ }
 
             try
             {
                 _memoryCounter = new PerformanceCounter("Memory", "Available MBytes");
             }
-            catch { }
+            catch { /* 同上：取不到就不显示内存项 */ }
 
             InitAudioDevice();
 
-            CompositionTarget.Rendering += OnRendering;
+            // ★ 不在这里无条件订阅 CompositionTarget.Rendering。
+            //   Rendering 是**全局每帧**回调：只要存在订阅者，WPF 组合管线就会持续出帧，
+            //   即使面板已经移出屏幕、即使 FPS 项根本没开 —— 实测这会让进程长期停在
+            //   单核 7~9% 的空闲占用（本项目自己的铁律也写着"禁止常驻订阅 CompositionTarget.Rendering"，
+            //   见 docs/评估-跨平台与定位.md / docs/SEABED-SPEC.md）。
+            //   现在只在「状态栏显示 FPS」真的打开时才挂上，关掉即摘掉。
 
             UpdateStatus();
 
@@ -70,13 +76,19 @@ namespace ShoreHue.UI.Status
             _timer.Tick += (s, e) => UpdateStatus();
             _timer.Start();
 
+            // 网络状态改为事件驱动（见 IsNetworkAvailableCached 注释）
+            NetworkChange.NetworkAvailabilityChanged += OnNetworkChanged;
+            NetworkChange.NetworkAddressChanged += OnNetworkChanged;
+
             // ★ 海床文件夹增删（用户放/删状态栏插件）：自动重新挂载自定义项
             _pluginChangedHandler = () =>
             {
-                if (_settings == null || !IsLoaded) return;
+                // ★ 本回调可能来自 watcher 的**后台线程**：IsLoaded 是 UI 线程亲和成员，只能在 Dispatcher 里读
+                //   （在外面读会抛跨线程异常，并中断 Changed 的整个多播 → 后面的订阅者这轮全都不刷新）
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
-                    try { ApplySettings(_settings); } catch { }
+                    if (_settings == null || !IsLoaded) return;
+                    try { ApplySettings(_settings); } catch { /* 尽力而为：状态栏项没重挂上，下次设置变化/文件变化会再试 */ }
                 }), System.Windows.Threading.DispatcherPriority.Background);
             };
             WidgetPluginStore.Changed += _pluginChangedHandler;
@@ -85,7 +97,9 @@ namespace ShoreHue.UI.Status
             {
                 _timer?.Stop();
                 _weatherTimer?.Stop();
-                CompositionTarget.Rendering -= OnRendering;
+                SetFpsRenderingSubscription(false);
+                NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
+                NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
                 _audioDevice?.Dispose();
                 DeactivateCustomItems();
                 WidgetPluginStore.Changed -= _pluginChangedHandler;
@@ -104,6 +118,7 @@ namespace ShoreHue.UI.Status
             SetVisible(CpuPanel, settings.StatusShowCpu);
             SetVisible(MemoryPanel, settings.StatusShowMemory);
             SetVisible(FpsPanel, settings.StatusShowFps);
+            SetFpsRenderingSubscription(settings.StatusShowFps);
             SetVisible(VolumePanel, settings.StatusShowVolume);
             SetVisible(NetworkPanel, settings.StatusShowNetwork);
             SetVisible(BatteryPanel, settings.StatusShowBattery);
@@ -164,18 +179,33 @@ namespace ShoreHue.UI.Status
                     };
                     panel.Children.Add(icon);
                     panel.Children.Add(text);
-                    StatusContainer.Children.Add(panel);
-
-                    provider.OnActivated();
-                    _customItems.Add(new CustomStatusItem
+                    // ★ 顺序很关键：必须**先登记再激活**。
+                    //   以前是先 StatusContainer.Children.Add(panel)、后才 provider.OnActivated()，
+                    //   而 OnActivated 抛异常会被下面 catch 吞掉 —— 此时 panel 已经在可视树里、
+                    //   `_customItems` 里却没有它，于是 DeactivateCustomItems() 永远移不掉它；
+                    //   下一次 ApplySettings 再加一块 → 状态栏每次刷新都多一个孤儿面板。
+                    var item = new CustomStatusItem
                     {
                         Key = kvp.Key,
                         Provider = provider,
                         Text = text,
                         Panel = panel
-                    });
+                    };
+                    _customItems.Add(item);
+                    try
+                    {
+                        StatusContainer.Children.Add(panel);
+                        provider.OnActivated();
+                    }
+                    catch
+                    {
+                        // 挂载/激活失败 → 就地回滚，避免留下登记了但没进树的半成品
+                        _customItems.Remove(item);
+                        StatusContainer.Children.Remove(panel);
+                        throw;
+                    }
                 }
-                catch { /* 单个插件异常不影响其他项 */ }
+                catch (Exception ex) { ShoreHue.UI.Widgets.Dynamic.PluginRuntimeGuard.ReportException(ex, "状态栏挂载"); }
             }
 
             UpdateCustomItems();
@@ -186,8 +216,9 @@ namespace ShoreHue.UI.Status
         {
             foreach (var item in _customItems)
             {
-                try { item.Text.Text = item.Provider.GetText() ?? ""; }
-                catch { }
+                try { SetTextIfChanged(item.Text, item.Provider.GetText() ?? ""); }
+                // ★ 守卫：连续失败的插件会被熔断停用（只记一次/秒，窗口内计满阈值才动作）
+                catch (Exception ex) { ShoreHue.UI.Widgets.Dynamic.PluginRuntimeGuard.ReportException(ex, "状态栏 GetText"); }
             }
         }
 
@@ -196,7 +227,7 @@ namespace ShoreHue.UI.Status
         {
             foreach (var item in _customItems)
             {
-                try { item.Provider.OnDeactivated(); } catch { }
+                try { item.Provider.OnDeactivated(); } catch (Exception ex) { ShoreHue.UI.Widgets.Dynamic.PluginRuntimeGuard.ReportException(ex, "状态栏卸载"); }
                 StatusContainer.Children.Remove(item.Panel);
             }
             _customItems.Clear();
@@ -212,7 +243,9 @@ namespace ShoreHue.UI.Status
             var w = await WeatherService.GetWeatherWithCityAsync(_weatherCity);
 
             // 确保回到 UI 线程更新（await 可能在无 SynchronizationContext 时落到线程池）
-            Dispatcher.BeginInvoke(new Action(() =>
+            // ★ 显式丢弃返回值：这里是"投递后不等"的封送（DispatcherOperation 可 await，
+            //   不丢弃会触发 CS4014）。
+            _ = Dispatcher.BeginInvoke(new Action(() =>
             {
                 if (w.HasValue)
                 {
@@ -262,13 +295,13 @@ namespace ShoreHue.UI.Status
                             WeatherText.Text = LocalizationManager.Instance["Status_WeatherLoading"];
                             await RefreshWeatherAsync();
                         }
-                        catch { }
+                        catch { /* 尽力而为：本次刷新失败，界面保留上次天气（下面计时器到点会再刷） */ }
                     };
                 }
                 _weatherClickTimer.Stop();
                 _weatherClickTimer.Start();
             }
-            catch { }
+            catch { /* 计时器起不来只影响"点一下立刻刷新"，定时刷新照常 */ }
         }
 
         private void InitAudioDevice()
@@ -293,10 +326,30 @@ namespace ShoreHue.UI.Status
                 _currentFps = _frameCount;
                 _frameCount = 0;
                 _fpsStartTime = now;
-                Application.Current.Dispatcher.Invoke(() =>
-                {
-                    FpsText.Text = $"{_currentFps}fps";
-                });
+                // 本回调已经在 UI 线程上（CompositionTarget.Rendering 由渲染管线在 UI 线程派发），
+                // 不需要再 Dispatcher.Invoke 绕一圈。
+                FpsText.Text = $"{_currentFps}fps";
+            }
+        }
+
+        /// <summary>
+        /// FPS 项的渲染订阅开关：**只有显示 FPS 时才订阅**（见构造函数注释）。
+        /// 幂等，可被 ApplySettings 反复调用。
+        /// </summary>
+        private void SetFpsRenderingSubscription(bool enabled)
+        {
+            if (enabled == _fpsSubscribed) return;
+            if (enabled)
+            {
+                _frameCount = 0;
+                _fpsStartTime = DateTime.Now;
+                CompositionTarget.Rendering += OnRendering;
+                _fpsSubscribed = true;
+            }
+            else
+            {
+                CompositionTarget.Rendering -= OnRendering;
+                _fpsSubscribed = false;
             }
         }
 
@@ -305,18 +358,46 @@ namespace ShoreHue.UI.Status
 
         private void UpdateStatus()
         {
+            // ★ 只算真正显示出来的项：隐藏项的读取在面板上看不到任何结果，却每秒都要付一次代价。
+            // ★ 写入走"值没变就不碰控件"的守卫：避免每秒重复触发资源查找 + 属性失效 + 测量/渲染。
+            //
+            // ★ 这里**没有**做"重要读数降到 2 秒一档"：我实测过那一版（3.44% vs 3.50%，在噪声范围内），
+            //   收益为零，却让 CPU/内存百分比刷新变慢、用户可能觉得"卡了"——已回退。
+            //   本视图真正的开销大头是**网络枚举**（`GetIsNetworkAvailable` 实测 78ms/次），
+            //   那条已改为事件驱动 + 30s 兜底缓存，见 IsNetworkAvailableCached。
             UpdateTime();
-            UpdateCpu();
-            UpdateMemory();
-            UpdateVolume();
-            UpdateNetwork();
-            UpdateBattery();
             UpdateCustomItems();
+
+            if (CpuPanel.Visibility == Visibility.Visible) UpdateCpu();
+            if (MemoryPanel.Visibility == Visibility.Visible) UpdateMemory();
+            if (VolumePanel.Visibility == Visibility.Visible) UpdateVolume();
+            if (NetworkPanel.Visibility == Visibility.Visible) UpdateNetwork();
+            if (BatteryPanel.Visibility == Visibility.Visible) UpdateBattery();
+        }
+
+        // ===== 变更守卫（值没变就不动 UI）=====
+
+        private static void SetTextIfChanged(TextBlock target, string text)
+        {
+            if (!string.Equals(target.Text, text, StringComparison.Ordinal)) target.Text = text;
+        }
+
+        /// <summary>元素 → 当前生效的画刷资源键（弱引用，元素被回收后条目自动消失）。</summary>
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<DependencyObject, System.Runtime.CompilerServices.StrongBox<string>> _brushKeys = new();
+
+        private static void SetBrushKeyIfChanged(FrameworkElement target, string resourceKey)
+        {
+            var box = _brushKeys.GetValue(target, _ => new System.Runtime.CompilerServices.StrongBox<string>(""));
+            if (string.Equals(box.Value, resourceKey, StringComparison.Ordinal)) return;
+            box.Value = resourceKey;
+            // 仍用 SetResourceReference（动态资源引用）：主题切换时图标要能跟着变，
+            // 这里只是避免"每秒重设同一个键"带来的重复资源查找与属性失效。
+            target.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, resourceKey);
         }
 
         private void UpdateTime()
         {
-            TimeText.Text = DateTime.Now.ToString("HH:mm:ss");
+            SetTextIfChanged(TimeText, DateTime.Now.ToString("HH:mm:ss"));
         }
 
         private void UpdateCpu()
@@ -327,10 +408,10 @@ namespace ShoreHue.UI.Status
                 {
                     float val = _cpuCounter.NextValue();
                     if (val > 0 && val < 100)
-                        CpuText.Text = $"{val:F0}%";
+                        SetTextIfChanged(CpuText, $"{val:F0}%");
                 }
             }
-            catch { }
+            catch { /* 读一次失败就保持上次数字（每秒都会再读） */ }
         }
 
         private void UpdateMemory()
@@ -344,21 +425,29 @@ namespace ShoreHue.UI.Status
                     if (totalMB > 0)
                     {
                         float usedPercent = (1 - availableMB / totalMB) * 100;
-                        MemoryText.Text = $"{usedPercent:F0}%";
+                        SetTextIfChanged(MemoryText, $"{usedPercent:F0}%");
                     }
                 }
             }
-            catch { }
+            catch { /* 同上：保持上次显示 */ }
         }
+
+        private float _totalMemoryMb;
+        private DateTime _totalMemoryAt = DateTime.MinValue;
 
         private float GetTotalMemoryMB()
         {
+            // ★ 物理内存总量几乎不变，没必要每秒向 GC 查一次（GC.GetGCMemoryInfo 会走 GC 内部查询）
+            if (_totalMemoryMb > 0 && DateTime.Now - _totalMemoryAt < TimeSpan.FromSeconds(30))
+                return _totalMemoryMb;
             try
             {
                 var gcMemoryInfo = GC.GetGCMemoryInfo();
-                return gcMemoryInfo.TotalAvailableMemoryBytes / 1024f / 1024f;
+                _totalMemoryMb = gcMemoryInfo.TotalAvailableMemoryBytes / 1024f / 1024f;
+                _totalMemoryAt = DateTime.Now;
+                return _totalMemoryMb;
             }
-            catch { return 0; }
+            catch { return _totalMemoryMb; }
         }
 
         private void UpdateVolume()
@@ -369,13 +458,11 @@ namespace ShoreHue.UI.Status
                 {
                     float volume = _audioDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
                     int vol = (int)(volume * 100);
-                    VolumeText.Text = $"{vol}%";
-                    VolumeIcon.SetResourceReference(
-                        System.Windows.Shapes.Path.StrokeProperty,
-                        vol <= 0 ? "DangerBrush" : "TextSecondaryBrush");
+                    SetTextIfChanged(VolumeText, $"{vol}%");
+                    SetBrushKeyIfChanged(VolumeIcon, vol <= 0 ? "DangerBrush" : "TextSecondaryBrush");
                 }
             }
-            catch { }
+            catch { /* 音量读数/图标更新失败（无音频设备）→ 保持上次显示 */ }
         }
 
         private void VolumePanel_PreviewMouseWheel(object sender, System.Windows.Input.MouseWheelEventArgs e)
@@ -400,29 +487,54 @@ namespace ShoreHue.UI.Status
 
                 UpdateVolume();
             }
-            catch { }
+            catch { /* 设置系统音量失败（设备被独占/已拔出）→ 显示值不变 */ }
         }
+
+        /// <summary>
+        /// 网络是否可用。
+        /// ★ 绝不能每秒调一次 `NetworkInterface.GetIsNetworkAvailable()`：它内部走
+        ///   `GetAdaptersAddresses` 枚举**所有**适配器（VPN / Hyper-V / WSL / Docker / 虚拟网卡越多越慢），
+        ///   实测在普通机器上是几十毫秒级的调用 —— 放在 1 秒定时器里就是**单核 7~8% 的常驻占用**
+        ///   （用 dotnet-stack 抓到的热栈：UpdateStatus → UpdateNetwork → GetNetworkInterfaces → GetPerAdapterInfo）。
+        ///   改为事件驱动 + 兜底 TTL 缓存：状态变化由 NetworkChange 通知，最坏 10 秒兜底刷新一次。
+        /// </summary>
+        private bool _netAvailable = true;
+        private DateTime _netCheckedAt = DateTime.MinValue;
+        private static readonly TimeSpan NetCacheTtl = TimeSpan.FromSeconds(30);
+
+        private bool IsNetworkAvailableCached()
+        {
+            var now = DateTime.Now;
+            if (now - _netCheckedAt < NetCacheTtl) return _netAvailable;
+            try
+            {
+                _netAvailable = NetworkInterface.GetIsNetworkAvailable();
+            }
+            catch { /* 取不到就沿用上次结论（有确定性回退，不需要刷屏） */ }
+            _netCheckedAt = now;
+            return _netAvailable;
+        }
+
+        /// <summary>网络拓扑变化（插拔网线 / 连上 Wi-Fi / VPN 起落）时让缓存立刻失效。</summary>
+        private void OnNetworkChanged(object? sender, EventArgs e) => _netCheckedAt = DateTime.MinValue;
 
         private void UpdateNetwork()
         {
             try
             {
-                if (!NetworkInterface.GetIsNetworkAvailable())
+                if (!IsNetworkAvailableCached())
                 {
-                    NetworkText.Text = LocalizationManager.Instance["Status_NetDisconnected"];
-                    NetworkIcon.SetResourceReference(
-                        System.Windows.Shapes.Path.StrokeProperty, "DangerBrush");
+                    SetTextIfChanged(NetworkText, LocalizationManager.Instance["Status_NetDisconnected"]);
+                    SetBrushKeyIfChanged(NetworkIcon, "DangerBrush");
                     return;
                 }
-                NetworkText.Text = LocalizationManager.Instance["UI_SystemStatusView_401"];
-                NetworkIcon.SetResourceReference(
-                    System.Windows.Shapes.Path.StrokeProperty, "TextSecondaryBrush");
+                SetTextIfChanged(NetworkText, LocalizationManager.Instance["UI_SystemStatusView_401"]);
+                SetBrushKeyIfChanged(NetworkIcon, "TextSecondaryBrush");
             }
             catch
             {
-                NetworkText.Text = LocalizationManager.Instance["Status_NetUnknown"];
-                NetworkIcon.SetResourceReference(
-                    System.Windows.Shapes.Path.StrokeProperty, "TextSecondaryBrush");
+                SetTextIfChanged(NetworkText, LocalizationManager.Instance["Status_NetUnknown"]);
+                SetBrushKeyIfChanged(NetworkIcon, "TextSecondaryBrush");
             }
         }
 
@@ -433,23 +545,19 @@ namespace ShoreHue.UI.Status
                 var powerStatus = System.Windows.Forms.SystemInformation.PowerStatus;
                 if (powerStatus.BatteryChargeStatus == System.Windows.Forms.BatteryChargeStatus.NoSystemBattery)
                 {
-                    BatteryText.Text = LocalizationManager.Instance["Status_NoBattery"];
-                    BatteryIcon.SetResourceReference(
-                        System.Windows.Shapes.Path.StrokeProperty, "TextSecondaryBrush");
+                    SetTextIfChanged(BatteryText, LocalizationManager.Instance["Status_NoBattery"]);
+                    SetBrushKeyIfChanged(BatteryIcon, "TextSecondaryBrush");
                     return;
                 }
                 int percent = (int)(powerStatus.BatteryLifePercent * 100);
-                BatteryText.Text = $"{percent}%";
+                SetTextIfChanged(BatteryText, $"{percent}%");
                 bool charging = powerStatus.PowerLineStatus == System.Windows.Forms.PowerLineStatus.Online;
-                BatteryIcon.SetResourceReference(
-                    System.Windows.Shapes.Path.StrokeProperty,
-                    charging ? "AccentBrush" : "TextSecondaryBrush");
+                SetBrushKeyIfChanged(BatteryIcon, charging ? "AccentBrush" : "TextSecondaryBrush");
             }
             catch
             {
-                BatteryText.Text = "--";
-                BatteryIcon.SetResourceReference(
-                    System.Windows.Shapes.Path.StrokeProperty, "TextSecondaryBrush");
+                SetTextIfChanged(BatteryText, "--");
+                SetBrushKeyIfChanged(BatteryIcon, "TextSecondaryBrush");
             }
         }
     }

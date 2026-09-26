@@ -24,7 +24,7 @@ namespace ShoreHue.UI.Main
 
         private void UpdateIconTextInternal()
         {
-            // ★ 图标已移除（2026-08-30 用户要求）：状态机驱动左侧竖条的反馈。
+            // ★ 左侧竖条的反馈由状态机驱动（不用图标）：
             //   拖放态显示大字字标：AddMode=＋（固定窗口/文件）、DeleteMode=🗑（移除快捷方式），
             //   否则仅按悬停点亮淡色反馈条。
             switch (_currentIconState)
@@ -287,7 +287,8 @@ namespace ShoreHue.UI.Main
                         };
                         closeWindows.Click += (_, _) =>
                         {
-                            if (ContentContainer.Content is ShoreHue.UI.Panels.TaskbarView tv) tv.CloseAllWindows();
+                            var tv = FindContentDescendant<ShoreHue.UI.Panels.TaskbarView>(ContentContainer.Content);
+                            if (tv != null) tv.CloseAllWindows();
                             else RefreshTaskbarView();
                         };
                         menu.Items.Add(closeWindows);
@@ -321,6 +322,20 @@ namespace ShoreHue.UI.Main
                 menu.Items.Add(new Separator());
             }
 
+            // ★ 插件守卫的恢复入口：安全模式重启 + 解除熔断
+            var safeMode = new MenuItem { Header = ShoreHue.UI.Localization.LocalizationManager.Instance["Tray_SafeMode"] };
+            safeMode.IsEnabled = !ShoreHue.UI.Widgets.Dynamic.PluginRuntimeGuard.SafeMode;
+            safeMode.Click += (_, _) => RequestSafeModeRestart();
+            menu.Items.Add(safeMode);
+
+            var clearBreaker = new MenuItem { Header = ShoreHue.UI.Localization.LocalizationManager.Instance["Tray_ClearBreaker"] };
+            clearBreaker.Click += (_, _) =>
+            {
+                int n = ShoreHue.UI.Widgets.Dynamic.PluginRuntimeGuard.ClearAll();
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Info($"[守卫] 用户解除了 {n} 个插件的熔断");
+            };
+            menu.Items.Add(clearBreaker);
+
             var settings = new MenuItem { Header = ShoreHue.UI.Localization.LocalizationManager.Instance["Tray_Settings"] };
             settings.Click += (_, _) => OpenSettings();
             menu.Items.Add(settings);
@@ -339,8 +354,8 @@ namespace ShoreHue.UI.Main
         {
             // ★ 全局字号缩放：面板内容切换（新控件进视觉树）后补应用一次
             ShoreHue.UI.Theme.FontScaleManager.ApplyFontScale(this, _settingsService.UiFontScale);
-            _appHelperView = ContentContainer.Content as AppHelperView;
-            _aiChatView = ContentContainer.Content as ShoreHue.UI.AI.AiChatView;
+            _appHelperView = FindContentDescendant<AppHelperView>(ContentContainer.Content);
+            _aiChatView = FindContentDescendant<ShoreHue.UI.AI.AiChatView>(ContentContainer.Content);
             UpdateIconTooltip();
 
             // ★ 小组件内容（含内部切标签）变化后重新测量并自适应面板尺寸：
@@ -356,9 +371,34 @@ namespace ShoreHue.UI.Main
                 if (!_shapeAnimator.IsTransformAnimating && !_iconCentered &&
                     !_edgeController.IsDirectLoadInProgress)
                 {
-                    _sizeController.ApplySizeStrategyForWidget();
+                    // ★ 面板隐藏时不跑自适应：此时内容不在可视树、布局未就绪，量到的是**上一份内容**的尺寸。
+                    //   真机实测（2026-09-13）：面板停在 web 标签 → 隐藏 → 在设置里取消勾选 web →
+                    //   隐藏期间仍跑了一次 AutoSize（量到 448x434 → 把面板设成 488x554），
+                    //   再唤出时又量到 1765x333（任务栏的形状）→ 面板被设成 683x453 → 内容区是空的。
+                    //   尺寸在下次**显示**时由显示路径统一测量即可，隐藏期间算它没有意义。
+                    if (_edgeController.IsPanelVisible)
+                        _sizeController.ApplySizeStrategyForWidget();
                 }
             }
+        }
+
+        /// <summary>
+        /// 请求"下次以安全模式启动"：落盘标记 → 退出。
+        /// ★ 不做"本进程内重启"：单实例互斥体在新进程启动时还没释放，新实例会直接退出；
+        ///   落盘标记 + 下次手动/自启进入，是可靠且不会和单实例打架的做法。
+        /// </summary>
+        private void RequestSafeModeRestart()
+        {
+            try
+            {
+                _settingsService.SafeModeRequested = true;
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning("[守卫] 用户请求：下次以安全模式启动");
+            }
+            catch (Exception ex)
+            {
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Error("设置安全模式请求失败", ex);
+            }
+            ExitApp();
         }
 
         private void UpdateIconTooltip()
@@ -380,16 +420,35 @@ namespace ShoreHue.UI.Main
                     ShoreHue.UI.Localization.LocalizationManager.Instance["Dnd_TipDnd"]
             };
 
+            if (ShoreHue.UI.Widgets.Dynamic.PluginRuntimeGuard.SafeMode)
+                tooltip += "（安全模式：未加载任何插件）";
             IconContainer.ToolTip = tooltip;
+        }
+
+        /// <summary>
+        /// 面板内容可能是**文件夹加载的薄封装**（如 TaskbarPanel 内部才是 TaskbarView），
+        /// 所以按具体类型取当前内容必须**向下找**，不能只看 ContentContainer.Content 本身。
+        /// </summary>
+        private static T? FindContentDescendant<T>(object? root) where T : DependencyObject
+        {
+            if (root is not DependencyObject node) return null;
+            if (node is T hit) return hit;
+            foreach (var child in System.Windows.LogicalTreeHelper.GetChildren(node))
+            {
+                if (child is DependencyObject d)
+                {
+                    var found = FindContentDescendant<T>(d);
+                    if (found != null) return found;
+                }
+            }
+            return null;
         }
 
         private void RefreshTaskbarView()
         {
-            // 刷新任务栏视图
-            if (ContentContainer.Content is TaskbarView taskbarView)
-            {
-                taskbarView.RefreshData();
-            }
+            // 刷新任务栏视图（文件夹版时它包在薄封装里 → 向下找）
+            var taskbarView = FindContentDescendant<TaskbarView>(ContentContainer.Content);
+            taskbarView?.RefreshData();
         }
     }
 }

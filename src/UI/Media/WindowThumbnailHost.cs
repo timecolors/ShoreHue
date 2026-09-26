@@ -43,7 +43,9 @@ namespace ShoreHue.UI.Media
         {
             if (_registered && _thumbnail != IntPtr.Zero)
             {
-                try { DwmUnregisterThumbnail(_thumbnail); } catch { }
+                // 尽力而为：注销失败也无害（缩略图随宿主窗口销毁自动清理）
+                try { DwmUnregisterThumbnail(_thumbnail); }
+                catch { /* P/Invoke 失败无副作用，不再套一层日志 */ }
             }
             _registered = false;
             _thumbnail = IntPtr.Zero;

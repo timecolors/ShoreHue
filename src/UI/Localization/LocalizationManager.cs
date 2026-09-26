@@ -83,12 +83,12 @@ namespace ShoreHue.UI.Localization
                     return Normalize(c.Name);
                 }
             }
-            catch { }
+            catch { /* 这条来源拿不到就试下一条，最后兜底 en-US */ }
             try
             {
                 return Normalize(SystemCulture.Name);
             }
-            catch { }
+            catch { /* 两条来源都拿不到 → 返回 en-US（见下一行） */ }
             return CultureInfo.GetCultureInfo("en-US");
         }
 

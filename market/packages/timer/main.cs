@@ -257,7 +257,8 @@ namespace ShoreHue.Builtin
             _alarm.Running = false; _alarm.AlarmTriggered = true;
             try
             {
-                ShoreHue.Infrastructure.WinApi.SystemToast.Show("ShoreHue", "闹钟时间到：" + _alarm.TargetTime.Value.ToString("HH:mm"));
+                // ★ 安全 v2：外来来源用窄接口发通知（带限频保护）
+            ShoreHue.UI.Widgets.HostCapabilities.ShowToast("ShoreHue", "闹钟时间到：" + _alarm.TargetTime.Value.ToString("HH:mm"));
                 System.Media.SystemSounds.Exclamation.Play();
             }
             catch { }

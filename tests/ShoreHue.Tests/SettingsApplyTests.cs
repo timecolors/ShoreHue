@@ -13,13 +13,14 @@ namespace ShoreHue.Tests;
 /// 设置改动刷新/重启后全部还原（"关掉小鸟依人刷新又开"、面板一直跟随鼠标）。
 /// 修复：SettingsManager.Apply(SettingsData) 整体替换内部数据并触发保存。
 /// </summary>
+[Collection("WidgetStore")]   // ★ 会改 AppPaths.TestDataRoot，必须与其它共享静态状态的测试串行（见 WidgetStoreCollection 注释）
 public class SettingsApplyTests : IDisposable
 {
     private readonly string _dir;
 
     public SettingsApplyTests()
     {
-        _dir = Path.Combine(Path.GetTempPath(), "dbp_apply_" + Guid.NewGuid().ToString("N"));
+        _dir = Path.Combine(Path.GetTempPath(), "sh_apply_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_dir);
         AppPaths.TestDataRoot = _dir;
     }

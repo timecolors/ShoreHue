@@ -70,7 +70,11 @@ namespace ShoreHue.Infrastructure.WinApi
                         }
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 尽力而为：拿不到 UIA 输入框/选区就退化成"只锁窗口"（后面靠 Ctrl+V 粘贴目标窗口）
+                    Log("定位目标输入框失败（退化为只锁窗口）: " + ex.Message);
+                }
 
                 _targetHwnd = hwnd;
                 _locked = true;
@@ -91,7 +95,7 @@ namespace ShoreHue.Infrastructure.WinApi
             {
                 ShoreHue.Core.Infrastructure.Logging.LogManager.Debug("[CursorOutput] " + msg);
             }
-            catch { }
+            catch { /* 记日志本身失败就不再记（避免自我递归） */ }
         }
 
         /// <summary>把文本输出到锁定的光标位置（重新激活窗口 + 恢复光标 + 粘贴）。</summary>
@@ -156,7 +160,11 @@ namespace ShoreHue.Infrastructure.WinApi
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：焦点没还回去，文本已经粘贴完成（用户最多要点一下窗口）
+                Log("恢复目标元素焦点失败: " + ex.Message);
+            }
         }
 
         public void Unlock()
@@ -195,7 +203,11 @@ namespace ShoreHue.Infrastructure.WinApi
                 if (fgThread != thisThread) AttachThreadInput(fgThread, thisThread, false);
                 if (targetThread != thisThread) AttachThreadInput(targetThread, thisThread, false);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：线程输入没摘干净会影响本次粘贴，但不影响后续（每次粘贴都重新 Attach）
+                Log("线程输入收尾失败: " + ex.Message);
+            }
         }
 
         private static void SendCtrlV()

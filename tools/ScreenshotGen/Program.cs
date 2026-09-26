@@ -303,6 +303,7 @@ namespace ScreenshotGen
     {
         public ObservableCollection<NoteItem> Notes { get; } = new();
         public NoteItem? CurrentNote { get; private set; }
+        public string? LoadWarning => null;
 
         public event EventHandler? NotesChanged;
 

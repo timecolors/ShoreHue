@@ -42,7 +42,11 @@ namespace ShoreHue.UI.Settings
                 Width = Math.Min(960, SystemParameters.WorkArea.Width - 40);
                 Height = Math.Min(720, SystemParameters.WorkArea.Height - 40);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：算不出工作区就用 XAML 里的默认宽高
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[设置] 计算窗口尺寸失败（用默认尺寸）：{ex.Message}");
+            }
 
             // ★ 跟随系统浅/深色主题（DynamicResource 即时生效；系统切换时自动刷新）
             ApplySystemTheme();
@@ -57,7 +61,11 @@ namespace ShoreHue.UI.Settings
                 };
                 Microsoft.Win32.SystemEvents.UserPreferenceChanged += _themeHandler;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 订阅不上 = 系统切换浅/深色时设置页不跟着变（要重开设置页）
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[设置] 订阅系统主题变化失败（主题不会实时跟随）：{ex.Message}");
+            }
             // ★ 不启用 Mica：Mica 跟随系统主题，深色主题下会把设置页背景变成黑色。
             //   固定用 XAML 浅色背景（#F9F9F9），Win10/Win11 观感一致。
             LoadSettings();
@@ -85,7 +93,11 @@ namespace ShoreHue.UI.Settings
                     if (_themeHandler != null) Microsoft.Win32.SystemEvents.UserPreferenceChanged -= _themeHandler;
                     if (_pluginChangedHandler != null) ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.Changed -= _pluginChangedHandler;
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 尽力而为：窗口正在关闭，退订失败只是留了个已死的订阅
+                    ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[设置] 退订事件失败（无害）：{ex.Message}");
+                }
             };
 
             // ★ 插件安装/删除时实时刷新（本窗口非模态常驻，可能在别处保存插件）
@@ -170,27 +182,7 @@ namespace ShoreHue.UI.Settings
         [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
 
-        private void TryApplyMicaBackdrop()
-        {
-            try
-            {
-                if (Environment.OSVersion.Version.Build < 22621) return;
-                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-                if (hwnd == IntPtr.Zero) return;
-
-                const int DWMWA_SYSTEMBACKDROP_TYPE = 38;
-                const int DWMSBT_MAINWINDOW = 2;
-                int value = DWMSBT_MAINWINDOW;
-                if (DwmSetWindowAttribute(hwnd, DWMWA_SYSTEMBACKDROP_TYPE, ref value, sizeof(int)) == 0)
-                {
-                    // Mica 生效后窗口背景接近透明，让毛玻璃材质透出
-                    Background = new System.Windows.Media.SolidColorBrush(
-                        System.Windows.Media.Color.FromArgb(2, 0xF9, 0xF9, 0xF9));
-                }
-            }
-            catch { }
-        }
-
+        // （曾尝试 Mica 背景，已决定不启用；无调用点的死代码已删除）
         private void LoadShortcutPage()
         {
             var page = new ShortcutManagementPage(_shortcutService);
@@ -221,7 +213,11 @@ namespace ShoreHue.UI.Settings
                 Resources["SettingsBorder"] = border;
                 Resources["CoastFlat"] = coast;
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 主题资源换不上 → 设置页颜色仍是旧的（切主题时看得见）
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[设置] 应用系统主题失败（界面颜色不更新）：{ex.Message}");
+            }
         }
 
         private void LoadSettings()
@@ -288,13 +284,21 @@ namespace ShoreHue.UI.Settings
 
             // 剪贴板与便签
             sldClipboardMax.Value = _settingsData.ClipboardMaxCount;
-            sldClipboardDisplay.Value = _settingsData.ClipboardDisplayLength;
+            // ★ 用**归一后的**值（SettingsManager 的 getter 会把旧的"字符数"老配置归一到默认 4）；
+            //   直接用 _settingsData 里的原始值，老配置的 100 会被 Slider 静默钳成上限 20，反而写坏。
+            sldClipboardDisplay.Value = _settings.ClipboardDisplayLength;
+            chkClipKeyboardNav.IsChecked = _settingsData.ClipboardKeyboardNav;
+            chkClipShowSourceApp.IsChecked = _settingsData.ClipboardShowSourceApp;
             sldClipImageMax.Value = _settingsData.ClipboardImageMaxWidth;
             txtClipImageMax.Text = _settingsData.ClipboardImageMaxWidth + "px";
             sldClipImageCacheLimit.Value = _settingsData.ClipboardImageCacheLimitMB;
             txtClipImageCacheLimit.Text = _settingsData.ClipboardImageCacheLimitMB + "MB";
-            txtDefaultNoteColor.Text = _settingsData.DefaultNoteColor ?? "#FFFF99";
+            txtDefaultNoteColor.Text = _settingsData.DefaultNoteColor ?? "#00000000";
             chkNoteShowTitle.IsChecked = _settingsData.NoteShowTitleByDefault;
+            txtNoteHotkeyNew.Text = _settingsData.NoteHotkeyNew ?? "";
+            txtNoteHotkeyDelete.Text = _settingsData.NoteHotkeyDelete ?? "";
+            txtNoteHotkeyNext.Text = _settingsData.NoteHotkeyNext ?? "";
+            UpdateNoteHotkeyHint();
 
             // 自适应
             chkAutoFitOnTrigger.IsChecked = _settingsData.AutoFitOnTrigger;
@@ -324,10 +328,20 @@ namespace ShoreHue.UI.Settings
             // ★★★ 逐区域动画（动画应用于：全局默认 / 16 区域） ★★★
             PopulateAnimRegionCombo();
             cmbAnimRegion.SelectedIndex = 0;
-            sldShowDuration.Value = _settingsData.ShowAnimationDurationMs;
-            txtShowDuration.Text = _settingsData.ShowAnimationDurationMs + "ms";
-            sldHideDuration.Value = _settingsData.HideAnimationDurationMs;
-            txtHideDuration.Text = _settingsData.HideAnimationDurationMs + "ms";
+            // ★ 0 = "尚未迁移"的哨兵值（老配置没有新字段时由 SettingsFileManager 迁移，迁移不到就靠这里的回退）。
+            //   滑块以前 Minimum=50，加载时会把 0 直接夹成 50 并在首次保存时把 50 写死，
+            //   于是"回退到 ShowHideDurationMs(150)"这条逻辑被永久破坏。现在滑块允许 0，
+            //   但**显示/保存时仍然解析成有效时长**，不给用户看到 0ms。
+            int showMs = _settingsData.ShowAnimationDurationMs > 0
+                ? _settingsData.ShowAnimationDurationMs
+                : (_settingsData.ShowHideDurationMs > 0 ? _settingsData.ShowHideDurationMs : 150);
+            int hideMs = _settingsData.HideAnimationDurationMs > 0
+                ? _settingsData.HideAnimationDurationMs
+                : (_settingsData.ShowHideDurationMs > 0 ? _settingsData.ShowHideDurationMs : 150);
+            sldShowDuration.Value = showMs;
+            txtShowDuration.Text = showMs + "ms";
+            sldHideDuration.Value = hideMs;
+            txtHideDuration.Text = hideMs + "ms";
             sldShowZoomFrom.Value = _settingsData.ShowAnimationZoomFrom;
             txtShowZoomFrom.Text = _settingsData.ShowAnimationZoomFrom.ToString("0.0#");
             sldHideZoomTo.Value = _settingsData.HideAnimationZoomTo;
@@ -507,7 +521,7 @@ namespace ShoreHue.UI.Settings
             {
                 txtWebToolUrl.Text = t.Url;
                 _settingsData.WebWidgetUrl = t.Url;
-                HookAutoSave(); // 即时落盘
+                ScheduleSave(); // ★ 改了数据就要排一次落盘（以前调的是 HookAutoSave —— 它只挂事件，不保存）
             }
         }
 
@@ -530,7 +544,7 @@ namespace ShoreHue.UI.Settings
             if (!string.Equals(_settingsData.WebWidgetUrl, url, StringComparison.Ordinal))
             {
                 _settingsData.WebWidgetUrl = url;
-                HookAutoSave();
+                ScheduleSave();
             }
         }
 
@@ -554,7 +568,7 @@ namespace ShoreHue.UI.Settings
             string name = GetBookmarkName(url);
             _settingsData.WebBookmarks.Add(new ShoreHue.Core.Services.Configuration.WebBookmark { Name = name, Url = url });
             RefreshWebBookmarkList();
-            HookAutoSave();
+            ScheduleSave();
             MessageBox.Show(this, "已收藏：" + name, "网页工具", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
@@ -564,7 +578,7 @@ namespace ShoreHue.UI.Settings
             {
                 _settingsData.WebBookmarks.Remove(b);
                 RefreshWebBookmarkList();
-                HookAutoSave();
+                ScheduleSave();
             }
         }
 
@@ -575,7 +589,12 @@ namespace ShoreHue.UI.Settings
                 var uri = new Uri(url);
                 return uri.Host.TrimStart("www.".ToCharArray());
             }
-            catch { return url; }
+            catch (Exception ex)
+            {
+                // 尽力而为：URL 解析不出来就显示原串
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[设置] 解析网址主机失败（显示原始地址）：{ex.Message}");
+                return url;
+            }
         }
 
         /// <summary>卸载 ShoreHue（非商店版）：二次确认后启动卸载脚本（删除应用/可选删除数据）。</summary>
@@ -707,6 +726,58 @@ namespace ShoreHue.UI.Settings
             UpdateTextAiHotkeyHint();
         }
 
+        // ========== 便签快捷键（面板内生效；三个框共用同一套捕获/清除/提示逻辑） ==========
+
+        /// <summary>便签快捷键捕获框：按下组合键即显示；Backspace/Esc 清除。与划词翻译同一套范式。</summary>
+        private void NoteHotkey_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (sender is not TextBox box) return;
+            e.Handled = true; // 只读框不参与输入
+
+            if (e.Key == Key.Escape || (e.Key == Key.Back && Keyboard.Modifiers == ModifierKeys.None))
+            {
+                box.Text = "";
+                UpdateNoteHotkeyHint();
+                return;
+            }
+
+            string combo = ShoreHue.Infrastructure.WinApi.HotkeyParser.Format(e.Key, Keyboard.Modifiers);
+            if (combo.Length == 0) return; // 纯修饰键 / 不支持的键：继续等待组合完成
+
+            box.Text = combo;
+            UpdateNoteHotkeyHint();
+        }
+
+        private void BtnClearNoteHotkey_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement { Tag: string name } && FindName(name) is TextBox box) box.Text = "";
+            UpdateNoteHotkeyHint();
+        }
+
+        /// <summary>提示：未设置 / 三个里重复 / 正常（并说明"只在便签面板内生效"）。</summary>
+        private void UpdateNoteHotkeyHint()
+        {
+            if (txtNoteHotkeyHint == null) return;
+            var boxes = new[] { txtNoteHotkeyNew, txtNoteHotkeyDelete, txtNoteHotkeyNext };
+            var set = boxes.Select(b => (b.Text ?? "").Trim()).Where(s => s.Length > 0).ToList();
+
+            if (set.Count == 0)
+            {
+                txtNoteHotkeyHint.Text = LocalizationManager.Instance["Set_NoteHotkey_NotSet"];
+                txtNoteHotkeyHint.Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136));
+            }
+            else if (set.Count != set.Distinct(StringComparer.OrdinalIgnoreCase).Count())
+            {
+                txtNoteHotkeyHint.Text = LocalizationManager.Instance["Set_NoteHotkey_Conflict"];
+                txtNoteHotkeyHint.Foreground = new SolidColorBrush(Color.FromRgb(200, 80, 70));
+            }
+            else
+            {
+                txtNoteHotkeyHint.Text = LocalizationManager.Instance["Set_NoteHotkey_Hint"];
+                txtNoteHotkeyHint.Foreground = new SolidColorBrush(Color.FromRgb(90, 120, 90));
+            }
+        }
+
         private void UpdateTextAiHotkeyHint()
         {
             if (txtTextAiHotkey == null) return;
@@ -797,7 +868,7 @@ namespace ShoreHue.UI.Settings
         private void BtnNoteColorPicker_Click(object sender, RoutedEventArgs e)
         {
             using var dialog = new WinForms.ColorDialog();
-            dialog.Color = SettingsUIHelper.HexToDrawingColor(txtDefaultNoteColor.Text ?? "#FFFF99");
+            dialog.Color = SettingsUIHelper.HexToDrawingColor(txtDefaultNoteColor.Text ?? "#00000000");
             if (dialog.ShowDialog() == WinForms.DialogResult.OK)
             {
                 txtDefaultNoteColor.Text = SettingsUIHelper.DrawingColorToHex(dialog.Color);
@@ -809,6 +880,10 @@ namespace ShoreHue.UI.Settings
         /// <summary>把所有控件值写入设置数据（不含保存/应用，供实时保存与刷新调用）。</summary>
         private void ApplyControlsToData()
         {
+            // ★ 自动检查更新：以前这个复选框只在加载时被**读**，从来没有写回 ——
+            //   取消勾选关掉窗口再打开又变回勾选状态，MainWindow 也照旧检查更新。
+            _settingsData.AutoCheckUpdate = chkAutoCheckUpdate.IsChecked ?? true;
+
             // 触发位置
             _settingsData.Edge_Top = chkTop.IsChecked ?? true;
             _settingsData.Edge_Bottom = chkBottom.IsChecked ?? true;
@@ -866,10 +941,15 @@ namespace ShoreHue.UI.Settings
             // 剪贴板与便签
             _settingsData.ClipboardMaxCount = (int)sldClipboardMax.Value;
             _settingsData.ClipboardDisplayLength = (int)sldClipboardDisplay.Value;
+            _settingsData.ClipboardKeyboardNav = chkClipKeyboardNav.IsChecked ?? true;
+            _settingsData.ClipboardShowSourceApp = chkClipShowSourceApp.IsChecked ?? true;
             _settingsData.ClipboardImageMaxWidth = (int)sldClipImageMax.Value;
             _settingsData.ClipboardImageCacheLimitMB = (int)sldClipImageCacheLimit.Value;
             _settingsData.DefaultNoteColor = txtDefaultNoteColor.Text;
             _settingsData.NoteShowTitleByDefault = chkNoteShowTitle.IsChecked ?? true;
+            _settingsData.NoteHotkeyNew = txtNoteHotkeyNew.Text.Trim();
+            _settingsData.NoteHotkeyDelete = txtNoteHotkeyDelete.Text.Trim();
+            _settingsData.NoteHotkeyNext = txtNoteHotkeyNext.Text.Trim();
 
             // 自适应
             _settingsData.AutoFitOnTrigger = chkAutoFitOnTrigger.IsChecked ?? true;
@@ -888,8 +968,9 @@ namespace ShoreHue.UI.Settings
             // ★ 触发/隐藏动画保存
             _settingsData.ShowAnimationType = LabelToAnimType(cmbShowAnimType, isHide: false);
             _settingsData.HideAnimationType = LabelToAnimType(cmbHideAnimType, isHide: true);
-            _settingsData.ShowAnimationDurationMs = (int)sldShowDuration.Value;
-            _settingsData.HideAnimationDurationMs = (int)sldHideDuration.Value;
+            // ★ 滑块允许 0（哨兵），但真正落盘的必须是有效时长：0 会让动画瞬间完成
+            _settingsData.ShowAnimationDurationMs = Math.Max(1, (int)sldShowDuration.Value);
+            _settingsData.HideAnimationDurationMs = Math.Max(1, (int)sldHideDuration.Value);
             _settingsData.ShowAnimationZoomFrom = sldShowZoomFrom.Value;
             _settingsData.HideAnimationZoomTo = sldHideZoomTo.Value;
             _settingsData.ShowAnimationOscillations = (int)sldShowOsc.Value;
@@ -937,27 +1018,10 @@ namespace ShoreHue.UI.Settings
                 if (combo == null) continue;
                 string panelValue = GetSelectedPanelValue(combo);
                 _settings.SetRegionPanel(key, panelValue);
-                // ★ 双写：同步进 _settingsData，否则后续 _settings.Apply(_settingsData)
-                //   会用旧副本把这里刚设置的区域面板覆盖丢失。
-                switch (key)
-                {
-                    case "Top_Left": _settingsData.RegionPanel_Top_Left = panelValue; break;
-                    case "Top_Center": _settingsData.RegionPanel_Top_Center = panelValue; break;
-                    case "Top_Right": _settingsData.RegionPanel_Top_Right = panelValue; break;
-                    case "Bottom_Left": _settingsData.RegionPanel_Bottom_Left = panelValue; break;
-                    case "Bottom_Center": _settingsData.RegionPanel_Bottom_Center = panelValue; break;
-                    case "Bottom_Right": _settingsData.RegionPanel_Bottom_Right = panelValue; break;
-                    case "Left_Top": _settingsData.RegionPanel_Left_Top = panelValue; break;
-                    case "Left_Center": _settingsData.RegionPanel_Left_Center = panelValue; break;
-                    case "Left_Bottom": _settingsData.RegionPanel_Left_Bottom = panelValue; break;
-                    case "Right_Top": _settingsData.RegionPanel_Right_Top = panelValue; break;
-                    case "Right_Center": _settingsData.RegionPanel_Right_Center = panelValue; break;
-                    case "Right_Bottom": _settingsData.RegionPanel_Right_Bottom = panelValue; break;
-                    case "TopLeft": _settingsData.RegionPanel_TopLeft = panelValue; break;
-                    case "TopRight": _settingsData.RegionPanel_TopRight = panelValue; break;
-                    case "BottomLeft": _settingsData.RegionPanel_BottomLeft = panelValue; break;
-                    case "BottomRight": _settingsData.RegionPanel_BottomRight = panelValue; break;
-                }
+                // ★ 双写：同步进 _settingsData，否则后续 _settings.Apply(_settingsData) 会用旧副本
+                //   把这里刚设置的区域面板覆盖丢失。
+                //   ★ 键 → 字段 的映射走 RegionTable（唯一真相源）——这里原来是第四份 switch 副本。
+                RegionTable.Find(key)?.SetPanel(_settingsData, panelValue);
             }
 
             // ★★★ 语言（通用设置） ★★★
@@ -969,6 +1033,7 @@ namespace ShoreHue.UI.Settings
                 (textAiHotkey != PanelToggleHotkey && HotkeyParser.TryParse(textAiHotkey, out _, out _)))
             {
                 _settingsData.TextAiHotkey = textAiHotkey;
+                _settingsData.TextAiTargetLanguage = txtTextAiTargetLang.Text.Trim();
             }
 
             // ★★★ 天气城市（选择器只改文本框，这里统一写入并即时保存） ★★★
@@ -1007,6 +1072,7 @@ namespace ShoreHue.UI.Settings
         // ★ 自动保存钩子去重：惰性页签内容首次选中才进视觉树，页签切换时补挂（防重复挂/漏挂）
         private readonly System.Collections.Generic.HashSet<object> _autoSaveHooked = new();
         private bool _languageHooked;
+        private bool _aiKeyHooked;
 
         /// <summary>防抖自动保存：设置控件变化后 400ms 内未再变化则写入并应用。</summary>
         private void ScheduleSave()
@@ -1039,11 +1105,11 @@ namespace ShoreHue.UI.Settings
                 //   之前 ApplyControlsToData 只写本地 _settingsData，_settings.SaveSettings()
                 //   保存的是 SettingsManager 内部从未更新的旧数据 → 设置改动全部丢失，
                 //   刷新/重启后还原（曾导致"关掉引潮刷新又开"、面板一直跟随鼠标）。
-                _settings.Apply(_settingsData);
+                _settings.Host().Apply(_settingsData);
                 SaveAiSettings();
                 ShoreHue.Infrastructure.WinApi.WeatherService.ClearCache();
                 ShoreHue.UI.Localization.LocalizationManager.Instance.SetCulture(_settingsData.Language);
-                _settings.SaveSettings();
+                _settings.Host().SaveSettings();
             }
             catch (Exception ex)
             {
@@ -1082,6 +1148,14 @@ namespace ShoreHue.UI.Settings
                     ShoreHue.UI.Localization.LocalizationManager.Instance.SetCulture(_settingsData.Language);
                     ScheduleSave();
                 };
+            }
+
+            // ★ AI 密钥（PasswordBox 不是 TextBox，上面的通用钩子挂不到它）：
+            //   以前粘贴完密钥直接关窗 = 什么都没保存（关闭时只在防抖计时器还挂着才落盘）。
+            if (!_aiKeyHooked)
+            {
+                _aiKeyHooked = true;
+                pwdAiKey.PasswordChanged += (_, _) => ScheduleSave();
             }
         }
 

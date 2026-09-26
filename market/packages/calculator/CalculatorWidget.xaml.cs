@@ -2,13 +2,15 @@ using System;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Collections.Generic;
 using System.Windows.Input;
 using ShoreHue.UI.Localization;
 using ShoreHue.UI.Widgets;
+using ShoreHue.Core.Infrastructure.Logging;   // LogManager（进制解析失败留痕）
 
 namespace ShoreHue.UI.Widgets.Calculator
 {
-    public partial class CalculatorWidget : UserControl, IWidget
+    public partial class CalculatorWidget : UserControl, IWidget, IWidgetFooter
     {
         private double _left;
         private double _right;
@@ -23,7 +25,9 @@ namespace ShoreHue.UI.Widgets.Calculator
 
         public CalculatorWidget()
         {
-            InitializeComponent();
+            
+            LoadHistory();   // 历史记录借设置落盘（小组件不能碰文件系统）
+InitializeComponent();
             Focusable = true;
             PreviewKeyDown += CalculatorWidget_PreviewKeyDown;
         }
@@ -50,6 +54,151 @@ namespace ShoreHue.UI.Widgets.Calculator
 
         // ================= 输入 =================
 
+        // ==================== 借鉴 Windows 计算器：键盘输入 / 复制结果 / 历史记录 ====================
+
+        /// <summary>
+        /// 键盘输入（面板聚焦时）。
+        /// ★ 直接调 InputDigit/InputOperator——它们本来就吃字符串，不用伪造按钮。
+        /// 键位都避开 Windows 全局快捷键；Ctrl+H（历史）与 Ctrl+C（复制）是应用内约定，不注册系统热键。
+        /// </summary>
+        private void Root_KeyDown(object sender, KeyEventArgs e)
+        {
+            bool ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+            if (ctrl)
+            {
+                switch (e.Key)
+                {
+                    case Key.C: CopyResult(); e.Handled = true; return;
+                    case Key.H: ShowHistoryMenu(); e.Handled = true; return;
+                }
+                return;
+            }
+
+            switch (e.Key)
+            {
+                case Key.D0: case Key.NumPad0: InputDigit("0"); break;
+                case Key.D1: case Key.NumPad1: InputDigit("1"); break;
+                case Key.D2: case Key.NumPad2: InputDigit("2"); break;
+                case Key.D3: case Key.NumPad3: InputDigit("3"); break;
+                case Key.D4: case Key.NumPad4: InputDigit("4"); break;
+                case Key.D5: case Key.NumPad5: InputDigit("5"); break;
+                case Key.D6: case Key.NumPad6: InputDigit("6"); break;
+                case Key.D7: case Key.NumPad7: InputDigit("7"); break;
+                case Key.D8: case Key.NumPad8: InputDigit("8"); break;
+                case Key.D9: case Key.NumPad9: InputDigit("9"); break;
+                case Key.OemPeriod: case Key.Decimal: InputDot(); break;
+                case Key.Add: case Key.OemPlus: InputOperator("+"); break;
+                case Key.Subtract: case Key.OemMinus: InputOperator("-"); break;
+                case Key.Multiply: InputOperator("*"); break;
+                case Key.Divide: case Key.OemQuestion: InputOperator("/"); break;
+                case Key.Enter: Equals_Click(this, new RoutedEventArgs()); break;   // "=" 与 "+" 是同一个物理键，只能给 +（Windows 计算器把 = 留给 Enter）
+
+                case Key.Back: Backspace_Click(this, new RoutedEventArgs()); break;
+                case Key.Escape: Clear_Click(this, new RoutedEventArgs()); break;
+                case Key.Delete: Clear_Click(this, new RoutedEventArgs()); break;
+                default: return;
+            }
+            e.Handled = true;
+        }
+
+        /// <summary>复制当前显示值到剪贴板（走宿主的剪贴板服务，顺带进历史；没有服务就退回系统剪贴板）。</summary>
+        private void CopyResult()
+        {
+            string text = DisplayText?.Text ?? "";
+            if (string.IsNullOrEmpty(text)) return;
+            // ★ 必须走 HostCapabilities.CopyToClipboard(string)：宿主剪贴板服务的写入方法，其参数类型是
+            //   「宿主剪贴板管理器」里的条目类型，而那个类型在符号层黑名单里 —— 插件只要**写出它的类型名**
+            //   就会被判违规、整包被拦（本文件同步到市场包后 MarketValidator 实测 FAIL）。
+            //   注意：连注释里都不能写那个类型名 —— 沙箱的文本层会连注释一起扫（本项目实测踩过）。
+            if (!ShoreHue.UI.Widgets.HostCapabilities.CopyToClipboard(text))
+                System.Windows.Clipboard.SetText(text);
+        }
+
+        // ---- 历史记录（借设置落盘：小组件沙箱不允许碰文件系统）----
+
+        private List<string> _history = new();
+
+        private int HistoryLimit
+            => ShoreHue.UI.Widgets.HostCapabilities.Settings?.CalculatorHistoryLimit ?? 20;
+
+        private void LoadHistory()
+        {
+            try
+            {
+                string json = ShoreHue.UI.Widgets.HostCapabilities.Settings?.CalculatorHistoryJson ?? "";
+                _history = string.IsNullOrWhiteSpace(json)
+                    ? new List<string>()
+                    : System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>();
+            }
+            catch (Exception ex)
+            {
+                _history = new List<string>();
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[计算器] 历史记录读取失败（按空处理）：{ex.Message}");
+            }
+        }
+
+        private void SaveHistory()
+        {
+            try
+            {
+                var s = ShoreHue.UI.Widgets.HostCapabilities.Settings;
+                if (s == null) return;
+                int limit = HistoryLimit;
+                if (limit <= 0) { s.CalculatorHistoryJson = ""; return; }
+                while (_history.Count > limit) _history.RemoveAt(_history.Count - 1);
+                s.CalculatorHistoryJson = System.Text.Json.JsonSerializer.Serialize(_history);
+            }
+            catch (Exception ex)
+            {
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Debug($"[计算器] 历史记录保存失败：{ex.Message}");
+            }
+        }
+
+        /// <summary>记一条历史（等号算完时调用）。上限 0 = 不记录（设置里可关，符合"高度自定义"）。</summary>
+        private void RecordHistory(string expr, string result)
+        {
+            if (HistoryLimit <= 0)
+            {
+                // ★ 同上：关掉就清空（已设置 0 的用户下次计算时，旧历史被抹掉）
+                if (_history.Count > 0) { _history.Clear(); SaveHistory(); }
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(result)) return;
+            if (result == LocalizationManager.Instance["Calc_Error"]) return;
+            string line = string.IsNullOrWhiteSpace(expr) ? result : expr.Trim() + "  =  " + result;
+            _history.Insert(0, line);
+            SaveHistory();
+        }
+
+        /// <summary>Ctrl+H：把历史列成菜单，点一条回填显示区（Windows 计算器同款用法）。</summary>
+        private void ShowHistoryMenu()
+        {
+            var menu = new ContextMenu();
+            if (_history.Count == 0)
+            {
+                menu.Items.Add(new MenuItem { Header = LocalizationManager.Instance["Calc_HistoryEmpty"], IsEnabled = false });
+            }
+            else
+            {
+                foreach (var line in _history)
+                {
+                    var item = new MenuItem { Header = line };
+                    item.Click += (_, _) =>
+                    {
+                        int idx = line.LastIndexOf("=  ", StringComparison.Ordinal);
+                        string value = idx >= 0 ? line.Substring(idx + 3).Trim() : line;
+                        DisplayText.Text = value;
+                        ExprText.Text = "";
+                        _enteringNewNumber = true;
+                        _error = false;
+                    };
+                    menu.Items.Add(item);
+                }
+            }
+            menu.PlacementTarget = this;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.MousePoint;
+            menu.IsOpen = true;
+        }
         private void Digit_Click(object sender, RoutedEventArgs e)
         {
             if (sender is Button btn && btn.Tag is string digit) InputDigit(digit);
@@ -62,7 +211,11 @@ namespace ShoreHue.UI.Widgets.Calculator
             if (sender is Button btn && btn.Tag is string op) InputOperator(op);
         }
 
-        private void Equals_Click(object sender, RoutedEventArgs e) => Calculate();
+        private void Equals_Click(object sender, RoutedEventArgs e)
+        {
+            Calculate();
+            RecordHistory(ExprText?.Text ?? "", DisplayText?.Text ?? "");
+        }
 
         private void Clear_Click(object sender, RoutedEventArgs e)
         {
@@ -75,7 +228,7 @@ namespace ShoreHue.UI.Widgets.Calculator
         private void Negate_Click(object sender, RoutedEventArgs e)
         {
             if (_error) return;
-            if (double.TryParse(DisplayText.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+            if (TryReadDisplay(out double v))
             {
                 DisplayText.Text = Format(-v);
             }
@@ -84,7 +237,7 @@ namespace ShoreHue.UI.Widgets.Calculator
         private void Percent_Click(object sender, RoutedEventArgs e)
         {
             if (_error) return;
-            if (double.TryParse(DisplayText.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+            if (TryReadDisplay(out double v))
             {
                 DisplayText.Text = Format(v / 100);
             }
@@ -111,7 +264,7 @@ namespace ShoreHue.UI.Widgets.Calculator
         private void SciFn_Click(object sender, RoutedEventArgs e)
         {
             if (_error || sender is not Button btn || btn.Tag is not string fn) return;
-            if (!double.TryParse(DisplayText.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+            if (!TryReadDisplay(out double v))
             {
                 v = 0;
             }
@@ -189,7 +342,7 @@ namespace ShoreHue.UI.Widgets.Calculator
         private void BitNot_Click(object sender, RoutedEventArgs e)
         {
             if (_error) return;
-            if (double.TryParse(DisplayText.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+            if (TryReadDisplay(out double v))
             {
                 DisplayText.Text = Format(~(long)Math.Round(v));
                 _enteringNewNumber = true;
@@ -199,10 +352,53 @@ namespace ShoreHue.UI.Widgets.Calculator
         private void BitShift_Click(object sender, RoutedEventArgs e)
         {
             if (_error || sender is not Button btn || btn.Tag is not string dir) return;
-            if (!double.TryParse(DisplayText.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v)) return;
+            if (!TryReadDisplay(out double v)) return;
             long lv = (long)Math.Round(v);
-            DisplayText.Text = Format(dir == "l" ? lv * 2 : lv / 2);
+            // ★ 位移要用真正的移位：旧实现是 `lv * 2` / `lv / 2` ——
+            //   乘以 2 对负数/溢出行为与 `<<` 不同，而 `/2` 是**截断除法**（-3/2 = -1，而 -3>>1 = -2），
+            //   在程序员模式里这就是错的。
+            DisplayText.Text = Format(dir == "l" ? lv << 1 : lv >> 1);
             _enteringNewNumber = true;
+        }
+
+        /// <summary>
+        /// 读取"当前显示的数字"。
+        /// ★ 程序员模式下显示的是 `0x1F` / `0o17` / `0b101`（见 <see cref="FormatRadix"/>），
+        ///   而各处原来一律用 `double.TryParse(..., InvariantCulture)` 去读 —— 带前缀的文本**必然解析失败**，
+        ///   于是按下 ±、%、NOT、位移、= 这些键时要么静默不生效，要么拿 `_right` 里的旧值算错
+        ///   （例如 0x1F + 2 被算成 0 + 2）。这里统一按前缀识别进制。
+        /// </summary>
+        private bool TryReadDisplay(out double value)
+        {
+            value = 0;
+            string text = DisplayText.Text ?? "";
+            if (text.Length == 0) return false;
+
+            // 程序员的 16/8/2 进制显示（FormatRadix 产出的小写前缀）
+            if (text.Length > 2 && text[0] == '0')
+            {
+                char p = char.ToLowerInvariant(text[1]);
+                int radix = p == 'x' ? 16 : p == 'o' ? 8 : p == 'b' ? 2 : 0;
+                if (radix != 0)
+                {
+                    try
+                    {
+                        // 用 ulong 承接再转 double：程序员模式下的位运算结果可能超出 long 的正区间，
+                        // Convert.ToInt64 对超大无符号值会抛异常。
+                        ulong u = Convert.ToUInt64(text.Substring(2), radix);
+                        value = u;
+                        return true;
+                    }
+                    catch (Exception ex)
+                    {
+                        // 非法数字（用户可能手输/退格造成 0x 后面为空）→ 按"读不出"处理
+                        LogManager.Debug($"[计算器] 解析进制数值失败（按无值处理）：{ex.Message}");
+                        return false;
+                    }
+                }
+            }
+
+            return double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
         }
 
         private static string RadixName(int radix) => radix switch
@@ -216,7 +412,7 @@ namespace ShoreHue.UI.Widgets.Calculator
         private void UpdateDisplayRadix()
         {
             if (_mode == CalcMode.Programmer &&
-                double.TryParse(DisplayText.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+                TryReadDisplay(out double v))
             {
                 DisplayText.Text = Format(v);
             }
@@ -274,7 +470,7 @@ namespace ShoreHue.UI.Widgets.Calculator
                 Calculate();
             }
 
-            if (double.TryParse(DisplayText.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
+            if (TryReadDisplay(out double v))
             {
                 _left = v;
             }
@@ -287,7 +483,7 @@ namespace ShoreHue.UI.Widgets.Calculator
         private void Calculate()
         {
             if (string.IsNullOrEmpty(_pendingOp) || _error) return;
-            if (!double.TryParse(DisplayText.Text, NumberStyles.Float, CultureInfo.InvariantCulture, out double right))
+            if (!TryReadDisplay(out double right))
             {
                 right = _right;
             }

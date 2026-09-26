@@ -6,13 +6,13 @@ using Xunit;
 
 namespace ShoreHue.Tests;
 
-/// <summary>验证 .dbp 预设包导出/导入往返与权限检测。</summary>
+/// <summary>验证 .shpkg 预设包导出/导入往返与权限检测（并覆盖旧版 .dbp 兼容读取）。</summary>
 public class SeabedPackageTests
 {
     [Fact]
     public void ExportImport_CustomItem_RoundTrip()
     {
-        string path = Path.Combine(Path.GetTempPath(), "pkg_" + Guid.NewGuid().ToString("N") + ".dbp");
+        string path = Path.Combine(Path.GetTempPath(), "pkg_" + Guid.NewGuid().ToString("N") + ".shpkg");
         try
         {
             var cp = new CustomPanelDefinition
@@ -48,7 +48,7 @@ public class SeabedPackageTests
     [Fact]
     public void ExportImport_FullPreset_RoundTrip()
     {
-        string path = Path.Combine(Path.GetTempPath(), "pkg_" + Guid.NewGuid().ToString("N") + ".dbp");
+        string path = Path.Combine(Path.GetTempPath(), "pkg_" + Guid.NewGuid().ToString("N") + ".shpkg");
         try
         {
             var data = new ShoreHue.Core.Services.Configuration.SettingsData
@@ -76,9 +76,38 @@ public class SeabedPackageTests
     }
 
     [Fact]
+    public void LegacyDbpExtension_StillImports()
+    {
+        // ★ 兼容：旧版 .dbp（DynamicBird 时代的缩写）包仍能被读取 —— 改名不影响老文件
+        string path = Path.Combine(Path.GetTempPath(), "legacy_" + Guid.NewGuid().ToString("N") + ".dbp");
+        try
+        {
+            var cp = new CustomPanelDefinition
+            {
+                Id = "custom_legacy",
+                Name = "旧扩展名包",
+                Kind = "Widget",
+                BaseType = "Widget",
+                ParentKey = "panel-widgets",
+                Source = "using System.Windows.Controls; public class W : UserControl { }"
+            };
+            Assert.Null(SeabedPackage.ExportCustom(cp, path));
+            Assert.True(File.Exists(path));
+
+            var imported = SeabedPackage.Import(path, out string? err);
+            Assert.NotNull(imported);
+            Assert.Equal("旧扩展名包", imported!.Name);
+        }
+        finally
+        {
+            try { File.Delete(path); } catch { }
+        }
+    }
+
+    [Fact]
     public void Import_CorruptFile_ReturnsError()
     {
-        string path = Path.Combine(Path.GetTempPath(), "bad_" + Guid.NewGuid().ToString("N") + ".dbp");
+        string path = Path.Combine(Path.GetTempPath(), "bad_" + Guid.NewGuid().ToString("N") + ".shpkg");
         try
         {
             File.WriteAllText(path, "not a zip");

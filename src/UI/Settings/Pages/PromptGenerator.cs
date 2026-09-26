@@ -1,4 +1,4 @@
-﻿using ShoreHue.Core.Models;
+using ShoreHue.Core.Models;
 using System.Linq;
 using System.Text;
 
@@ -35,16 +35,17 @@ namespace ShoreHue.UI.Settings.Pages
             return GenerateConfigJson(node, currentJson);
         }
 
-        /// <summary>状态栏显示项：生成实现 IStatusProvider 的完整 .cs 源码提示词（放入 状态栏/ 文件夹生效）。</summary>
+        /// <summary>状态栏显示项：生成实现 IStatusProvider 的完整 .cs 源码提示词
+        /// （放入 <c>面板\状态栏\&lt;id&gt;\</c> 生效 —— 扁平化后状态栏是 面板/ 下的一个分组目录）。</summary>
         private static string GenerateStatusProviderSource(string providerName, string currentSource)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("【角色】你是 ShoreHue 海岸线 的状态栏显示项开发专家。请严格按下面的规范，为状态栏显示项「" + providerName + "」生成完整可编译的 C# 源码（实现 IStatusProvider，放入 状态栏/ 文件夹后由 watcher 自动编译挂载到状态栏）。");
+            sb.AppendLine("【角色】你是 ShoreHue 海岸线 的状态栏显示项开发专家。请严格按下面的规范，为状态栏显示项「" + providerName + "」生成完整可编译的 C# 源码（实现 IStatusProvider，放入 seabed\\面板\\状态栏\\<id>\\ 后由 watcher 自动编译挂载到状态栏）。");
             sb.AppendLine();
             sb.AppendLine("【必须遵守的接口契约】");
             sb.AppendLine("1. 类必须公开（public class），命名空间随意但避免与内置冲突；");
             sb.AppendLine("2. 必须实现 ShoreHue.UI.Status.IStatusProvider 接口；");
-            sb.AppendLine("3. 必须实现五个成员：string Name（显示名，中文）；string IconText（图标，文本符号或文字，如 ☀）；string GetText()（当前文本，每秒被调用一次，UI 线程，禁止耗时操作）；void OnActivated()（挂载时调用，可订阅资源/启动 DispatcherTimer）；void OnDeactivated()（卸载时调用，必须停止定时器、释放资源）；bool IsEnabled(ShoreHue.Core.Services.Configuration.ISettingsService settings)（是否显示，默认返回 true 即可）；");
+            sb.AppendLine("3. 必须实现六个成员：string Name（显示名，中文）；string IconText（图标，文本符号或文字，如 ☀）；string GetText()（当前文本，每秒被调用一次，UI 线程，禁止耗时操作）；void OnActivated()（挂载时调用，可订阅资源/启动 DispatcherTimer）；void OnDeactivated()（卸载时调用，必须停止定时器、释放资源）；bool IsEnabled(ShoreHue.Core.Services.Configuration.ISettingsService settings)（是否显示，默认返回 true 即可）；");
             sb.AppendLine("4. 不要创建任何 UI 控件——状态栏项由系统自动生成「图标+文本」布局，插件只提供数据和生命周期。");
             sb.AppendLine();
             sb.AppendLine("【可靠性要求】");

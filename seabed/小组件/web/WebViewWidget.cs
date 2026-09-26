@@ -32,6 +32,16 @@ namespace ShoreHue.UI.Widgets
     {
         private readonly ISettingsService _settings;
         private UserControl? _view;
+        /// <summary>
+        /// ★ 无参构造：**从文件夹加载时只能走这一条路**（海床按 `IWidget` 动态实例化，宿主无法注入服务）。
+        /// 设置改从窄接口 `HostCapabilities.Settings` 取；带参构造保留给宿主内部直接 new 的场景。
+        /// </summary>
+        public WebViewWidget()
+            : this(ShoreHue.UI.Widgets.HostCapabilities.Settings
+                   ?? throw new InvalidOperationException("宿主未提供设置服务（HostCapabilities.Settings 为空）"))
+        {
+        }
+
         public WebViewWidget(ISettingsService settings) { _settings = settings; }
         public string Name => "网页工具";
         public UserControl CreateView() => _view ??= new WebViewPanel(_settings);
@@ -91,7 +101,7 @@ namespace ShoreHue.UI.Widgets
 
             var go = new Button
             {
-                Content = "打开",
+                Content = ShoreHue.UI.Localization.LocalizationManager.Instance["Web_Open"],
                 Width = 56,
                 Height = 28,
                 FontSize = 11,
@@ -123,11 +133,23 @@ namespace ShoreHue.UI.Widgets
                 }
                 catch (Exception ex)
                 {
-                    _addr.Text = "WebView2 初始化失败：" + ex.Message;
+                    _addr.Text = ShoreHue.UI.Localization.LocalizationManager.Instance["Web_InitFailed"] + ex.Message;
                 }
             };
             // ★ 不在 Unloaded 时 Dispose：面板隐藏/显示频繁，重建 WebView2 会丢状态且可能加载异常；
-            //   实例随 WidgetSwitcher 生命周期存活（进程由 WebView2 管理）
+            //   实例随 WidgetSwitcher 生命周期存活（进程由 WebView2 管理）。
+            // ★ 但"面板隐藏"与"控件真的从可视树移除"是两件事：后者（切换布局/重建标签/进程退出前的清理）
+            //   如果也不释放，WebView2 的用户数据目录锁与 msedgewebview2 子进程会一直留着，
+            //   而且 `Loaded` 里的 `async void` 处理器会在重新挂载时**再跑一遍**，与旧实例抢占。
+            //   这里只在控件被移出可视树时停止导航并释放核心实例。
+            Unloaded += (_, _) =>
+            {
+                try
+                {
+                    if (_web.CoreWebView2 != null) _web.CoreWebView2.Stop();
+                }
+                catch { /* 停止失败不影响后续释放（尽力而为） */ }
+            };
         }
 
         private void Navigate()
@@ -142,7 +164,7 @@ namespace ShoreHue.UI.Widgets
                 if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) ||
                     (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
                 {
-                    _addr.Text = "仅支持 http/https 网址";
+                    _addr.Text = ShoreHue.UI.Localization.LocalizationManager.Instance["Web_OnlyHttp"];
                     return;
                 }
                 _web.CoreWebView2.Navigate(url);
@@ -154,7 +176,7 @@ namespace ShoreHue.UI.Widgets
             }
             catch (Exception ex)
             {
-                _addr.Text = "导航失败：" + ex.Message;
+                _addr.Text = ShoreHue.UI.Localization.LocalizationManager.Instance["Web_NavFailed"] + ex.Message;
             }
         }
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -21,6 +21,8 @@ namespace ShoreHue.UI.Seabed
         private readonly string _sourceKey;
         private readonly string _defaultCategory;
         private readonly System.Collections.Generic.List<string> _permissions;
+        /// <summary>本节点已关联的市场包 ID（非空 = 这次是"更新已有包"，ID 不许改）。</summary>
+        private readonly string _marketId;
 
         private readonly TextBox _idBox = new();
         private readonly TextBox _nameBox = new();
@@ -35,12 +37,15 @@ namespace ShoreHue.UI.Seabed
         public bool Published { get; private set; }
         /// <summary>发布时最终使用的名称（成功后可读）。</summary>
         public string NameResult { get; private set; } = "";
+        /// <summary>发布时最终使用的包 ID（成功后可读；调用方据此回写到本地面板的 manifest）。</summary>
+        public string IdResult { get; private set; } = "";
 
         private readonly System.Collections.Generic.List<GitHubMarketService.PackageFile> _extraFiles;
 
         public PublishWindow(string source, string defaultName, string kind, string baseType,
             string parentKey, string sourceKey, string defaultCategory, System.Collections.Generic.List<string> permissions,
-            System.Collections.Generic.List<GitHubMarketService.PackageFile>? extraFiles = null)
+            System.Collections.Generic.List<GitHubMarketService.PackageFile>? extraFiles = null,
+            string marketId = "")
         {
             _source = source ?? "";
             _extraFiles = extraFiles ?? new();
@@ -51,6 +56,7 @@ namespace ShoreHue.UI.Seabed
             _sourceKey = sourceKey ?? "";
             _defaultCategory = defaultCategory ?? "小组件";
             _permissions = permissions ?? new System.Collections.Generic.List<string>();
+            _marketId = marketId ?? "";
 
             bool light = ShoreHue.Infrastructure.Utils.SystemTheme.IsLightTheme();
             var cBg = light ? Color.FromRgb(0xF9, 0xF9, 0xF9) : Color.FromRgb(0x1E, 0x1E, 0x1E);
@@ -103,12 +109,23 @@ namespace ShoreHue.UI.Seabed
             form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(70) });
             form.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            AddField(form, 0, "包 ID", _idBox, "英文/数字/下划线/连字符，如 my-widget");
+            AddField(form, 0, "包 ID", _idBox, "必须形如「你的 GitHub 登录名/短名」，例如 timecolors/tide-note");
             AddField(form, 1, "名称", _nameBox, "");
             AddField(form, 2, "分类", _catBox, "");
             AddField(form, 3, "描述", _descBox, "一句话介绍（可留空）");
 
-            _idBox.Text = SanitizeId(_defaultName);
+            // ★ 默认值优先级：① 已关联的市场包 ID（说明这次是"更新已有包"，ID 必须一致）
+            //                   ② 「登录名/短名」—— 无斜杠的裸 ID 是官方保留命名空间，新包会被服务端拒绝
+            string login = GitHubMarketService.CurrentUser ?? "";
+            string slug = SanitizeId(_defaultName);
+            _idBox.Text = !string.IsNullOrEmpty(_marketId)
+                ? _marketId
+                : (string.IsNullOrEmpty(login) ? slug : login + "/" + slug);
+            if (!string.IsNullOrEmpty(_marketId))
+            {
+                _idBox.IsReadOnly = true;
+                _idBox.ToolTip = "这是更新已有包，包 ID 不能修改（市场包 ID 一旦发布即不可更改）";
+            }
             _nameBox.Text = _defaultName;
             string[] cats = { "小组件", "面板功能", "面板设计", "动画", "外观", "交互", "状态栏" };
             _catBox.ItemsSource = cats;
@@ -194,9 +211,12 @@ namespace ShoreHue.UI.Seabed
         {
             if (_busy) return;
             string id = _idBox.Text.Trim();
-            if (!System.Text.RegularExpressions.Regex.IsMatch(id, "^[A-Za-z0-9_-]{2,64}$"))
+            // ★ 复用服务端的同一条形态规则（一段或两段、防路径穿越），**不再自己写正则**：
+            //   这里原先是第三份拷贝且只认一段，会把命名空间 ID 在本地就拦下来，
+            //   而服务端明明允许 —— 两端规则不一致的典型后果。
+            if (MarketPackageRules.ValidateIdFormat(id) is string idErr)
             {
-                _status.Text = "包 ID 仅允许 英文/数字/下划线/连字符（2-64 字符）";
+                _status.Text = idErr;
                 _status.Foreground = new SolidColorBrush(Color.FromRgb(0xD4, 0x50, 0x45));
                 return;
             }
@@ -219,6 +239,7 @@ namespace ShoreHue.UI.Seabed
                 ResultError = null;
                 Published = true;
                 NameResult = name;
+                IdResult = id;   // 调用方据此把市场包 ID 回写到本地面板（更新时自动填对）
                 _status.Text = "已放流「" + name + "」！稍后其他 ShoreHue 用户可在市场拾贝（CDN 缓存约几分钟）";
                 _status.Foreground = new SolidColorBrush(Color.FromRgb(0x3C, 0xA8, 0x5C));
                 _publishBtn.IsEnabled = true;

@@ -1,4 +1,5 @@
 using System;
+using ShoreHue.Core.Infrastructure.Logging;
 using System.Runtime.InteropServices;
 
 namespace ShoreHue.Infrastructure.WinApi
@@ -27,7 +28,11 @@ namespace ShoreHue.Infrastructure.WinApi
                 keybd_event(virtualKey, 0, 0, UIntPtr.Zero);
                 keybd_event(virtualKey, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：媒体键发不出去（无媒体应用/被拦）就什么都不做
+                LogManager.Debug($"[媒体键] 发送媒体键失败：{ex.Message}");
+            }
         }
     }
 }

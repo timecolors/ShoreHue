@@ -43,6 +43,12 @@ namespace ShoreHue.Core.Models
         public string CreatedAt { get; set; } = "";
 
         /// <summary>
+        /// 本地面板对应**市场里**的那个包 ID（形如 `登录名/短名`，发布成功后回写；未发布为空）。
+        /// 用途：更新同一个包时自动填对 ID，用户不必手打（手打很容易变成"又发了一个新包"或撞别人的 ID）。
+        /// </summary>
+        public string MarketId { get; set; } = "";
+
+        /// <summary>
         /// 来源是否可信（本地自写）：true = 完全权限（本地自用模型）；false = 来自「其他海床」市场，
         /// 编译时走沙箱（WidgetCompiler.CheckSandbox 拦截 Process/反射/注册表/窗口/屏幕/剪贴板/文件写等危险 API）。
         /// 旧数据缺省 true（本地创建）。

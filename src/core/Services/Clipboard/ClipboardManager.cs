@@ -122,7 +122,11 @@ namespace ShoreHue.Core.Services
                     _messageWindow.Dispose();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 正在销毁窗口：监听随之失效，清理失败无害
+                LogManager.Debug($"[剪贴板] 注销剪贴板监听窗口失败（无害）：{ex.Message}");
+            }
             _messageWindow = null;
         }
 
@@ -158,9 +162,26 @@ namespace ShoreHue.Core.Services
                     if (_lastContentHash == hash) return;
                     _lastContentHash = hash;
 
-                    if (History.Count > 0 && History[0].GetHashString() == hash)
+                    // ★ 去重必须查**整张历史**并把命中的那条移到最前（"最近复制优先"），
+                    //   不能只看 History[0]：复制 A → B → A 会得到 [A, B, A] 这种重复项，
+                    //   而用户看到的是同一条内容出现两次、且旧的那条抢不到置顶。
+                    int dup = -1;
+                    for (int i = 0; i < History.Count; i++)
+                    {
+                        if (History[i].GetHashString() == hash) { dup = i; break; }
+                    }
+                    if (dup >= 0)
+                    {
+                        if (dup == 0) return;
+                        var existing = History[dup];
+                        History.RemoveAt(dup);
+                        existing.Timestamp = DateTime.Now;   // 复用同一对象（图片缓存文件也随之复用）
+                        History.Insert(0, existing);
+                        SaveHistory();
                         return;
+                    }
 
+                    item.SourceApp ??= TryGetSourceApp();   // 借鉴 Win+V/Ditto：记下"从哪复制来的"
                     History.Insert(0, item);
 
                     int maxCount = _settings.ClipboardMaxCount;
@@ -204,7 +225,11 @@ namespace ShoreHue.Core.Services
                         if (img != null)
                             return ClipboardItem.FromImage(img, _settings.ClipboardImageMaxWidth);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        // 剪贴板被别的程序占着是常态，后面还有 HTML/文件/文本兜底 → 只留 Debug
+                        LogManager.Debug($"[剪贴板] 读取图片失败（继续尝试其它格式）：{ex.Message}");
+                    }
                 }
 
                 if (System.Windows.Clipboard.ContainsFileDropList())
@@ -222,7 +247,11 @@ namespace ShoreHue.Core.Services
                         if (!string.IsNullOrWhiteSpace(html))
                             return ClipboardItem.FromHtml(html);
                     }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        // 同上：读不到 HTML 还有文件/文本兜底
+                        LogManager.Debug($"[剪贴板] 读取 HTML 格式失败（继续尝试其它格式）：{ex.Message}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -278,12 +307,15 @@ namespace ShoreHue.Core.Services
             }
         }
 
-        public void CopyToClipboard(ClipboardItem item)
+        /// <summary>复制回剪贴板。plainTextOnly=true 时只回填纯文本（借鉴 Win+V 的"粘贴为纯文本"：
+        /// 从网页复制来的内容常带一堆字体/颜色，粘进编辑器就花掉）。</summary>
+        public void CopyToClipboard(ClipboardItem item, bool plainTextOnly = false)
         {
             try
             {
                 _isRestoring = true;
-                item.RestoreToClipboard();
+                if (plainTextOnly) RestoreAsPlainText(item);
+                else item.RestoreToClipboard();
                 _lastContentHash = item.GetHashString();
             }
             catch (Exception ex)
@@ -296,6 +328,49 @@ namespace ShoreHue.Core.Services
             }
         }
 
+        /// <summary>接口成员（可选参数不满足接口签名）：保持对外契约不变，转发到带纯文本开关的实现。</summary>
+        void IClipboardService.CopyToClipboard(ClipboardItem item) => CopyToClipboard(item, false);
+        void IClipboardService.CopyToClipboardPlainText(ClipboardItem item) => CopyToClipboard(item, true);
+
+        /// <summary>只回填纯文本（HTML 条目取其纯文本投影；图片/文件原样回填）。</summary>
+        private static void RestoreAsPlainText(ClipboardItem item)
+        {
+            switch (item.Type)
+            {
+                case "Html":
+                    System.Windows.Clipboard.SetText(item.FullText ?? item.DisplayText ?? "");
+                    break;
+                case "Text":
+                    System.Windows.Clipboard.SetText(item.FullText ?? item.DisplayText ?? "");
+                    break;
+                default:
+                    item.RestoreToClipboard();
+                    break;
+            }
+        }
+
+        // ★ 就地声明（本项目惯例：哪个服务用哪个服务自己声明，避免为一个 API 抽公共类）
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+        [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+        /// <summary>取当前前台窗口的进程名作为"来源应用"。拿不到就返回 null（不猜）。</summary>
+        private static string? TryGetSourceApp()
+        {
+            try
+            {
+                IntPtr hwnd = GetForegroundWindow();
+                if (hwnd == IntPtr.Zero) return null;
+                GetWindowThreadProcessId(hwnd, out uint pid);
+                if (pid == 0) return null;
+                using var p = System.Diagnostics.Process.GetProcessById((int)pid);
+                string name = p.ProcessName;
+                return string.IsNullOrWhiteSpace(name) ? null : name;
+            }
+            catch (Exception ex)
+            {
+                LogManager.Debug($"[剪贴板] 读取来源应用失败（留空）：{ex.Message}");
+                return null;
+            }
+        }
         /// <summary>收藏/取消收藏（收藏条目不被自动清理，记忆库核心）。</summary>
         public void SetPinned(ClipboardItem item, bool pinned)
         {
@@ -315,7 +390,12 @@ namespace ShoreHue.Core.Services
                 var item = CaptureClipboard();
                 return item?.GetHashString();
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                // 返回 null = "这次读不出当前内容"，调用方按"变了"处理（最坏是重复记一条）
+                LogManager.Debug($"[剪贴板] 读取当前剪贴板内容失败（按未知处理）：{ex.Message}");
+                return null;
+            }
         }
 
         private void LoadHistory()
@@ -338,7 +418,24 @@ namespace ShoreHue.Core.Services
             }
             catch (Exception ex)
             {
-                LogManager.Error("加载剪贴板历史失败", ex);
+                // ★ 加载失败**不能**静默继续用空列表：下一次 SaveHistory 会把"空历史"写回文件，
+                //   把用户的历史彻底抹掉。这里把坏文件改名隔离，保证它不会被随后的保存覆盖。
+                LogManager.Error("加载剪贴板历史失败（已隔离坏文件，避免被空历史覆盖）", ex);
+                try
+                {
+                    string bad = GetHistoryFilePath();
+                    if (File.Exists(bad))
+                    {
+                        string quarantine = bad + ".corrupt-" + DateTime.Now.ToString("yyyyMMddHHmmss");
+                        File.Move(bad, quarantine);
+                        LogManager.Error("已把无法解析的剪贴板历史移动到：" + quarantine);
+                    }
+                }
+                catch (Exception qex)
+                {
+                    // 连隔离都失败：至少已记 Error，且此时不会再有"空写回"（文件仍存在但下次 Save 会覆盖）
+                    LogManager.Error("隔离损坏的剪贴板历史失败：" + qex.Message, qex);
+                }
             }
         }
 
@@ -348,15 +445,28 @@ namespace ShoreHue.Core.Services
             {
                 var list = History.Select(item => item.ToData()).ToList();
                 string json = System.Text.Json.JsonSerializer.Serialize(list, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(GetHistoryFilePath(), json);
+                // ★ 原子写：剪贴板历史是会被高频重写的文件，直接 WriteAllText 遇到崩溃/断电会留下截断的 JSON，
+                //   而加载端解析失败后返回空列表，下一次保存就把"空"写回去 → 历史**整个丢失**。
+                string path = GetHistoryFilePath();
+                string tmp = path + ".tmp";
+                File.WriteAllText(tmp, json);
+                if (File.Exists(path)) File.Replace(tmp, path, null, true);
+                else File.Move(tmp, path);
             }
             catch (Exception ex)
             {
                 LogManager.Error("保存剪贴板历史失败", ex);
+                try { if (File.Exists(GetHistoryFilePath() + ".tmp")) File.Delete(GetHistoryFilePath() + ".tmp"); }
+                catch { /* 清理失败无害：下次写入会覆盖同名临时文件 */ }
             }
 
             // ★ 图片缓存总量上限：超限时清理"未被收藏引用且最旧"的缓存文件
-            try { EnforceImageCacheLimit(); } catch { }
+            try { EnforceImageCacheLimit(); }
+            catch (Exception ex)
+            {
+                // 限额清理失败 → 图片缓存会继续涨（占磁盘），用户可见的后果，留 Warning
+                LogManager.Warning($"[剪贴板] 清理超限图片缓存失败（缓存会继续增长）：{ex.Message}");
+            }
         }
 
         /// <summary>
@@ -400,7 +510,11 @@ namespace ShoreHue.Core.Services
                     total -= len;
                     LogManager.Debug($"剪贴板图片缓存清理: {fi.Name} (-{len / 1024}KB)");
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 尽力而为：单个缓存文件删不掉就跳过，下一轮再试
+                    LogManager.Debug($"[剪贴板] 删除缓存文件失败（跳过该文件）：{ex.Message}");
+                }
             }
         }
 
@@ -459,6 +573,10 @@ namespace ShoreHue.Core.Services
             public DateTime Timestamp { get; set; } = DateTime.Now;
             public string? HtmlContent { get; set; }
 
+            /// <summary>来源应用（进程名，如 "chrome"）。★ 借鉴 Win+V / Ditto：一眼看出这条是从哪复制来的。
+            /// 取不到就留空（不影响功能）。</summary>
+            public string? SourceApp { get; set; }
+
             /// <summary>收藏到常用（不被自动清理上限淘汰）。</summary>
             public bool IsPinned { get; set; }
 
@@ -477,7 +595,11 @@ namespace ShoreHue.Core.Services
                             var hash = sha.ComputeHash(fs);
                             return Convert.ToBase64String(hash);
                         }
-                        catch { }
+                        catch (Exception ex)
+                        {
+                            // 降级：读不到缓存文件就退回按文本算哈希（去重精度略降，功能不受影响）
+                            LogManager.Debug($"[剪贴板] 读取缓存文件算哈希失败（退回按文本算）：{ex.Message}");
+                        }
                     }
                     return HashText(DisplayText);
                 }
@@ -496,13 +618,24 @@ namespace ShoreHue.Core.Services
                 return Convert.ToBase64String(hash);
             }
 
+            /// <summary>
+            /// 显示文本的**安全上限（字符）** —— 只是防线，不是显示策略。
+            /// 界面显示多长由「单条最多显示几行」决定：换行显示，到行数上限为止。
+            /// ★ 旧值 500 太小：一条稍长的文本就被砍成"前 500 字 + …"，而用户要的是
+            ///   "完整显示内容而不是省略号"（2026-09-13）。这里放宽到 4000，只防住病态巨串。
+            /// </summary>
+            private const int DisplayTextSafetyCap = 4000;
+
             public static ClipboardItem FromText(string text)
             {
+                text ??= "";
                 return new ClipboardItem
                 {
                     Type = "Text",
                     FullText = text,
-                    DisplayText = text.Length > 500 ? text.Substring(0, 500) + "..." : text
+                    DisplayText = text.Length > DisplayTextSafetyCap
+                        ? text.Substring(0, DisplayTextSafetyCap) + "..."
+                        : text
                 };
             }
 
@@ -574,14 +707,26 @@ namespace ShoreHue.Core.Services
 
             public static ClipboardItem FromHtml(string html)
             {
-                var plainText = System.Text.RegularExpressions.Regex.Replace(html, "<.*?>", " ");
-                plainText = System.Text.RegularExpressions.Regex.Replace(plainText, "\\s+", " ").Trim();
+                // ★ 先让"分段/换行"标签变成真正的换行，再清理其余标签、压缩空白。
+                //   旧实现把 \s+ 一律压成空格 → 多段内容被压成**一长行**，用户看到的就是"全糊在一起"
+                //   （2026-09-13 用户提问"复制了多段内容怎么处理的"就是这么来的）。
+                string withBreaks = System.Text.RegularExpressions.Regex.Replace(
+                    html, @"<\s*(br|/p|/div|/li|/h[1-6]|/tr)\s*/?\s*>", "\n",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                var plainText = System.Text.RegularExpressions.Regex.Replace(withBreaks, "<.*?>", " ");
+                plainText = System.Text.RegularExpressions.Regex.Replace(plainText, "[ \t]+", " ");
+                plainText = System.Text.RegularExpressions.Regex.Replace(plainText, @"[ \t]*\n[ \t]*", "\n").Trim();
                 return new ClipboardItem
                 {
                     Type = "Html",
                     HtmlContent = html,
                     FullText = plainText,
-                    DisplayText = $"HTML: {(plainText.Length > 200 ? plainText.Substring(0, 200) + "..." : plainText)}"
+                    // ★ 与纯文本同口径：只留"病态巨串"安全上限，不再按 200 字砍成 "HTML: …"。
+                    //   富文本粘贴（网页/编辑器）走的正是这条，"HTML: 前200字..." 既显示不全、
+                    //   前缀又占掉了第一行。
+                    DisplayText = plainText.Length > DisplayTextSafetyCap
+                        ? plainText.Substring(0, DisplayTextSafetyCap) + "..."
+                        : plainText
                 };
             }
 
@@ -599,6 +744,7 @@ namespace ShoreHue.Core.Services
                         FilePaths = data.FilePaths,
                         Timestamp = data.Timestamp,
                         HtmlContent = data.HtmlContent,
+                        SourceApp = data.SourceApp,
                         IsPinned = data.IsPinned
                     };
 
@@ -623,6 +769,7 @@ namespace ShoreHue.Core.Services
                     FilePaths = FilePaths,
                     Timestamp = Timestamp,
                     HtmlContent = HtmlContent,
+                    SourceApp = SourceApp,
                     IsPinned = IsPinned
                 };
             }
@@ -666,7 +813,9 @@ namespace ShoreHue.Core.Services
             {
                 if (!string.IsNullOrEmpty(CachePath) && File.Exists(CachePath))
                 {
-                    try { File.Delete(CachePath); } catch { }
+                    // 尽力而为：删不掉会留个孤儿缓存文件（下次限额清理还会再扫到）
+                    try { File.Delete(CachePath); }
+                    catch (Exception ex) { LogManager.Debug($"[剪贴板] 删除孤儿缓存失败（无害）：{ex.Message}"); }
                 }
             }
         }
@@ -681,6 +830,9 @@ namespace ShoreHue.Core.Services
             public List<string>? FilePaths { get; set; }
             public DateTime Timestamp { get; set; }
             public string? HtmlContent { get; set; }
+
+            /// <summary>来源应用（进程名）。</summary>
+            public string? SourceApp { get; set; }
 
             /// <summary>收藏（不被自动清理）。</summary>
             public bool IsPinned { get; set; }

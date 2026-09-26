@@ -90,7 +90,7 @@ namespace ShoreHue.UI.Main
                 if (region == EdgeRegion.Unknown) return false;
                 return IsRegionEnabledBySettings(region);
             }
-            catch { return false; }
+            catch { /* 算不出来就当"不在启用区域" → 不呼出（宁可不弹，也不要误弹） */ return false; }
         }
 
         // ========== 外观应用 ==========
@@ -132,7 +132,7 @@ namespace ShoreHue.UI.Main
                     // 图标图形已移除，无需设置 IconPath.Stroke
                 }
             }
-            catch { }
+            catch { /* 只影响配色（面板照常显示，用上一次的颜色） */ }
 
             double targetOpacity = _settingsService.Opacity;
             if (Math.Abs(_visibilityController.Opacity - targetOpacity) > 0.001)
@@ -165,7 +165,7 @@ namespace ShoreHue.UI.Main
                     SystemStatusContainer.Content = null;
                 }
             }
-            catch { }
+            catch { /* 尽力而为：状态栏区隐藏不掉最多留一块空白（下次应用设置时会再试） */ }
         }
 
         // ========== 颜色工具 ==========
@@ -193,7 +193,7 @@ namespace ShoreHue.UI.Main
                 else return Color.FromRgb(45, 45, 45);
                 return Color.FromArgb(a, r, g, b);
             }
-            catch { return Color.FromRgb(45, 45, 45); }
+            catch { /* 颜色串写错（用户手改配置）就用默认深灰，面板照常显示 */ return Color.FromRgb(45, 45, 45); }
         }
     }
 }

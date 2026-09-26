@@ -90,6 +90,13 @@ namespace ShoreHue.UI.AppHelper
         public MediaSessionInfo Info { get; }
         public string AppName => Info.AppName;
         public string DisplayText => Info.DisplayText;
+        /// <summary>
+        /// 专辑封面。★ 必须在这里显式暴露：XAML 里绑的是 `{Binding Thumbnail}`，
+        /// 而 DataContext 是本类（不是 `MediaSessionInfo`）—— 以前本类没有这个属性，
+        /// 绑定静默失败（WPF 只写调试输出），于是封面**永远显示不出来**，
+        /// 而控制器每次轮询仍然照旧解码一张 BitmapImage（白付代价）。
+        /// </summary>
+        public System.Windows.Media.ImageSource? Thumbnail => Info.Thumbnail;
         public Geometry PlayGlyph =>
             (Geometry)(Info.IsPlaying
                 ? Application.Current.FindResource("IconPause")

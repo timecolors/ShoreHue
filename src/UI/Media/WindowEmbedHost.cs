@@ -134,7 +134,7 @@ namespace ShoreHue.UI.Media
                         ShowWindow(_targetHwnd, SW_SHOWMINNOACTIVE);
                     }
                 }
-                catch { }
+                catch { /* 尽力而为：还原目标窗口失败也不抛（否则会打断 Detach 后面的清理与状态复位） */ }
 
                 _embedded = false;
                 _targetHwnd = IntPtr.Zero;
@@ -156,7 +156,7 @@ namespace ShoreHue.UI.Media
                         dpi = source.CompositionTarget.TransformToDevice.M11;
                     }
                 }
-                catch { }
+                catch { /* 取不到 DPI 就按 100%（下一行的 1.0 兜底同时挡住 NaN/Infinity） */ }
                 if (dpi <= 0 || double.IsNaN(dpi) || double.IsInfinity(dpi)) dpi = 1.0;
 
                 int w = Math.Max(1, (int)(ActualWidth * dpi));
@@ -174,7 +174,7 @@ namespace ShoreHue.UI.Media
 
                 SetWindowPos(_targetHwnd, IntPtr.Zero, 0, 0, w, h, SWP_NOZORDER | SWP_NOACTIVATE);
             }
-            catch { }
+            catch { /* 尽力而为：被嵌入的窗口没跟着变尺寸（下次布局变化会再试） */ }
         }
 
         protected override void DestroyWindowCore(HandleRef hwnd)

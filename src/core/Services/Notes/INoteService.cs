@@ -1,4 +1,4 @@
-﻿using ShoreHue.Core.Services;
+using ShoreHue.Core.Services;
 using System;
 using System.Collections.ObjectModel;
 
@@ -18,6 +18,12 @@ namespace ShoreHue.src.core.Services.Notes
         /// 当前便签
         /// </summary>
         NoteItem? CurrentNote { get; }
+
+        /// <summary>
+        /// 载入时数据文件损坏（已留档、未删除）时为一句可显示的话，否则 null。
+        /// ★ 需要有这个属性，是因为"解析失败"以前只能写日志 —— 用户看到的是"便签全没了"却不知原因。
+        /// </summary>
+        string? LoadWarning { get; }
 
         /// <summary>
         /// 便签变化事件

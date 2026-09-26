@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using ShoreHue.Core.Infrastructure.Logging;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -81,7 +82,11 @@ namespace ShoreHue.Infrastructure.WinApi
 
                     windows.Add(item);
                 }
-                catch { }
+                catch
+                {
+                    // 尽力而为且**刻意不记日志**：这里在枚举回调里、每次刷新都会走一遍，
+                    //   单个窗口读失败只影响它自己（少一个条目），下一轮刷新会重试 —— 记日志会刷屏
+                }
                 return true;
             });
 
@@ -129,7 +134,11 @@ namespace ShoreHue.Infrastructure.WinApi
                     return file.Trim();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：查不到进程路径（提权/受保护进程）→ 下面的缓存空串，不会反复查（每个 pid 只失败一次）
+                LogManager.Debug($"[窗口列表] 读取进程路径失败 pid={pid}：{ex.Message}");
+            }
 
             _processPathCache[pid] = "";
             return "";
@@ -164,7 +173,11 @@ namespace ShoreHue.Infrastructure.WinApi
                         return false;
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 尽力而为：某个窗口的属性读不出来就跳过它，继续找下一个
+                    LogManager.Debug($"[窗口列表] 遍历窗口时读取属性失败（已跳过该窗口）：{ex.Message}");
+                }
                 return true;
             });
 
@@ -198,7 +211,11 @@ namespace ShoreHue.Infrastructure.WinApi
                         result[file.Trim()] = hwnd;
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 尽力而为：这个窗口不进映射（最坏是它不在任务栏里显示）
+                    LogManager.Debug($"[窗口列表] 建立进程→窗口映射时失败（已跳过该窗口）：{ex.Message}");
+                }
                 return true;
             });
 
@@ -351,7 +368,11 @@ namespace ShoreHue.Infrastructure.WinApi
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为（UI 装饰）：取不到图标就显示占位（结果按 pid 缓存，不会反复失败）
+                LogManager.Debug($"[窗口列表] 提取窗口图标失败 pid={pid}：{ex.Message}");
+            }
             return null;
         }
 

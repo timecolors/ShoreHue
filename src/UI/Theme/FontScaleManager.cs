@@ -16,8 +16,14 @@ namespace ShoreHue.UI.Theme
     /// </summary>
     public static class FontScaleManager
     {
-        // 元素 → 原始 FontSize（首次遍历记录；之后缩放都用原始值重算）
-        private static readonly Dictionary<DependencyObject, double> _baseSizes = new();
+        /// <summary>原始 FontSize 的持有者（ConditionalWeakTable 的值必须是引用类型）。</summary>
+        private sealed class BaseSize { public double Value; }
+
+        // 元素 → 原始 FontSize（首次遍历记录；之后缩放都用原始值重算）。
+        // ★ 必须用 ConditionalWeakTable（键弱引用）而不是 Dictionary：
+        //   Dictionary 会强引用每一个被遍历过的元素 —— 而面板/动态小组件会不断创建新控件，
+        //   旧控件被卸载后依然被这张表 root 住，等于每个元素泄漏一次（含其整棵可视子树）。
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<DependencyObject, BaseSize> _baseSizes = new();
         private static double _currentScale = 1.0;
 
         /// <summary>对视觉树应用字号缩放（root 为 Window/UserControl/Grid 等根元素）。scale=1.0 恢复原始。</summary>
@@ -30,7 +36,7 @@ namespace ShoreHue.UI.Theme
             {
                 Walk(root, scale);
             }
-            catch { }
+            catch { /* 遍历中途出问题不影响已应用的部分（每个元素各自 try，见 ApplyFontSize） */ }
         }
 
         /// <summary>重置缓存（新窗口/动态内容加入后，若其字号未被记录过，需要重置以重新采样原始值）。</summary>
@@ -72,18 +78,16 @@ namespace ShoreHue.UI.Theme
             try
             {
                 double current = (double)fe.GetValue(TextElement.FontSizeProperty);
-                if (!_baseSizes.TryGetValue(fe, out double baseSize))
-                {
-                    baseSize = current;
-                    _baseSizes[fe] = baseSize;
-                }
-                double target = Math.Round(baseSize * scale, 1);
+                // GetValue 的工厂是原子的：并发/重入时不会抛"键已存在"
+                var box = _baseSizes.GetValue(fe,
+                    k => new BaseSize { Value = (double)k.GetValue(TextElement.FontSizeProperty) });
+                double target = Math.Round(box.Value * scale, 1);
                 if (Math.Abs(current - target) > 0.01)
                 {
                     fe.SetValue(TextElement.FontSizeProperty, target);
                 }
             }
-            catch { }
+            catch { /* 单个元素设不了字号就跳过它（UI 装饰，不影响功能） */ }
         }
     }
 }

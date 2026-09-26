@@ -97,7 +97,7 @@ namespace ShoreHue.UI.AppHelper
                                 $"[MediaCover] {info.AppName} 媒体属性无缩略图");
                         }
                     }
-                    catch { }
+                    catch { /* 尽力而为：这个会话读不到属性就跳过它，其余会话照常列出 */ }
 
                     try
                     {
@@ -105,7 +105,7 @@ namespace ShoreHue.UI.AppHelper
                         info.IsPlaying =
                             playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
                     }
-                    catch { }
+                    catch { /* 读不到播放状态就当"未在播放"（界面最多少亮一个标记） */ }
 
                     result.Add(info);
                 }
@@ -211,7 +211,10 @@ namespace ShoreHue.UI.AppHelper
 
         private static string FriendlyAppName(string sourceAppUserModelId)
         {
-            if (string.IsNullOrEmpty(sourceAppUserModelId)) return "未知应用";
+            // ★ 复用已有的本地化键（Toast_UnknownApp 就是"未知应用"/"Unknown app"）：
+            //   硬编码中文会让英文界面里出现中文，而同义的键本来就已经存在。
+            if (string.IsNullOrEmpty(sourceAppUserModelId))
+                return ShoreHue.UI.Localization.LocalizationManager.Instance["Toast_UnknownApp"];
 
             // 形如 "Tencent.QQMusic.xxx" 或 "SpotifyAB.SpotifyMusic_zhtwkyt98bp6g!App"
             string app = sourceAppUserModelId;

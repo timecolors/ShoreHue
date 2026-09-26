@@ -1,11 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.Core.Infrastructure.Service;
+using ShoreHue.Infrastructure.Utils;
 
 namespace ShoreHue.Core.Services.Configuration
 {
-    public class SettingsManager : ISettingsService, IService
+    public class SettingsManager : ISettingsService, IPluginTrustStore, ISettingsHost, IService
     {
         private SettingsData _data;
         private readonly object _lock = new object();
@@ -22,9 +24,18 @@ namespace ShoreHue.Core.Services.Configuration
         public string Name => "SettingsManager";
         public bool IsInitialized { get; private set; } = false;
 
+        /// <summary>
+        /// ★ 本实例锁定的配置文件路径（构造时确定，之后不再变）。
+        /// 为什么必须锁：落盘是 300ms 防抖的，定时器在**稍后**才跑；若那时才去解析
+        /// `AppPaths.DataRoot`，一旦数据根变了（单元测试隔离目录在 Dispose 里被清空就是这样），
+        /// 这次落盘就会写到**另一个文件**上去（实测踩过：测试把用户真实 config.json 覆盖成默认值）。
+        /// 一个 SettingsManager 实例只应管一个配置文件。
+        /// </summary>
+        private readonly string _configPath = AppPaths.ConfigPath;
+
         public SettingsManager()
         {
-            _data = SettingsFileManager.Load();
+            _data = SettingsFileManager.Load(_configPath);
             NormalizePanelKinds();
         }
 
@@ -44,6 +55,7 @@ namespace ShoreHue.Core.Services.Configuration
             LogManager.Debug("SettingsManager 已关闭");
         }
 
+        /// <summary>宿主面：从磁盘重载（见 ISettingsHost）。</summary>
         public void Reload()
         {
             // ★ 刷新前先强制落盘内存中的待保存改动（防抖 300ms 内点刷新会丢改动：
@@ -51,7 +63,7 @@ namespace ShoreHue.Core.Services.Configuration
             FlushSaveNow();
             lock (_lock)
             {
-                _data = SettingsFileManager.Load();
+                _data = SettingsFileManager.Load(_configPath);
                 NormalizePanelKinds();
                 SettingsChanged?.Invoke();
             }
@@ -81,7 +93,9 @@ namespace ShoreHue.Core.Services.Configuration
             }
             if (changed)
             {
-                try { SettingsFileManager.Save(_data); } catch { }
+                // 修好的 Kind 没落盘 → 下次启动又要重修（且界面分类可能不对）
+                try { SettingsFileManager.Save(_data, _configPath); }
+                catch (Exception ex) { LogManager.Error($"修复面板 Kind 后落盘失败：{ex.Message}", ex); }
             }
         }
 
@@ -111,11 +125,28 @@ namespace ShoreHue.Core.Services.Configuration
             }
             try
             {
+                bool saved;
                 lock (_lock)
                 {
-                    SettingsFileManager.Save(_data);
+                    saved = SettingsFileManager.Save(_data, _configPath);
+                    // ★ 落盘成功后必须清脏标记。
+                    //   否则 `_saveDirty` 会一直停在 true（Apply 不排定防抖定时器），
+                    //   下一次 `Reload()` 里的 `FlushSaveNow()` 就会把**这份内存快照再写一遍**，
+                    //   覆盖掉其间别的组件刚写进 config.json 的内容 ——
+                    //   「应用整套预设 / 一键恢复 / 云端恢复」全是"先写文件、再 Reload"这一形态，
+                    //   于是它们会静默失效（界面照样提示成功）。
+                    //   落盘失败时保持脏，交给下一次防抖或 Shutdown 重试。
+                    _saveDirty = !saved;
                 }
-                NotifySettingsChanged();
+                // ★ 这里**同步**通知（不调 NotifySettingsChanged 的 Dispatcher 封送）：
+                //   ① 本方法的调用点全是 UI 线程（设置窗口保存、海床"应用预设/应用配置目录"），
+                //      它自己的文档契约就是"保存即生效 + 同步触发"；
+                //   ② 走封送的话，只要进程里**恰好存在别的 WPF Application**（单元测试进程里
+                //      XAML 编译测试创建过 Application），通知就变成异步投递 → 调用方以为没通知，
+                //      测试随执行顺序时绿时红（历史"偶发假红"的真正来源）。
+                //   将来若真有人从后台线程调 Apply，跨线程异常会照常抛给订阅者并写进日志，不会静默。
+                try { SettingsChanged?.Invoke(); }
+                catch (Exception ex) { LogManager.Error("设置变更通知失败", ex); }
             }
             catch (Exception ex)
             {
@@ -176,14 +207,18 @@ namespace ShoreHue.Core.Services.Configuration
             if (!shouldSave) return;
             try
             {
+                bool saved;
                 lock (_lock)
                 {
-                    SettingsFileManager.Save(_data);
+                    saved = SettingsFileManager.Save(_data, _configPath);
+                    // 落盘失败 → 重新置脏，下一次防抖/关闭时再试；否则这次改动就此丢失且无迹可查
+                    if (!saved) _saveDirty = true;
                 }
                 NotifySettingsChanged();
             }
             catch (Exception ex)
             {
+                lock (_lock) { _saveDirty = true; }
                 LogManager.Error("设置落盘失败", ex);
             }
         }
@@ -434,44 +469,16 @@ namespace ShoreHue.Core.Services.Configuration
         }
 
         // ========== 区域形状 ==========
+        // ★ 键 → 字段 的映射只有一处：RegionTable（边缘拆成 edge+region 的旧调用形态在这里拼回规范键）。
+        /// <summary>区域形状；四角没有形状字段 → 返回 Default。含未知键的所有情况都回落 Default。</summary>
         public string GetRegionShape(string edge, string region)
-        {
-            return region switch
-            {
-                "Left" when edge == "Top" => _data.Region_Top_Left ?? "Default",
-                "Center" when edge == "Top" => _data.Region_Top_Center ?? "Default",
-                "Right" when edge == "Top" => _data.Region_Top_Right ?? "Default",
-                "Left" when edge == "Bottom" => _data.Region_Bottom_Left ?? "Default",
-                "Center" when edge == "Bottom" => _data.Region_Bottom_Center ?? "Default",
-                "Right" when edge == "Bottom" => _data.Region_Bottom_Right ?? "Default",
-                "Top" when edge == "Left" => _data.Region_Left_Top ?? "Default",
-                "Center" when edge == "Left" => _data.Region_Left_Center ?? "Default",
-                "Bottom" when edge == "Left" => _data.Region_Left_Bottom ?? "Default",
-                "Top" when edge == "Right" => _data.Region_Right_Top ?? "Default",
-                "Center" when edge == "Right" => _data.Region_Right_Center ?? "Default",
-                "Bottom" when edge == "Right" => _data.Region_Right_Bottom ?? "Default",
-                _ => "Default"
-            };
-        }
+            => RegionTable.Find(RegionTable.KeyOf(edge, region))?.GetShape(_data) ?? RegionTable.DefaultShape;
 
         public void SetRegionShape(string edge, string region, string shape)
         {
-            switch (region)
-            {
-                case "Left" when edge == "Top": _data.Region_Top_Left = shape; break;
-                case "Center" when edge == "Top": _data.Region_Top_Center = shape; break;
-                case "Right" when edge == "Top": _data.Region_Top_Right = shape; break;
-                case "Left" when edge == "Bottom": _data.Region_Bottom_Left = shape; break;
-                case "Center" when edge == "Bottom": _data.Region_Bottom_Center = shape; break;
-                case "Right" when edge == "Bottom": _data.Region_Bottom_Right = shape; break;
-                case "Top" when edge == "Left": _data.Region_Left_Top = shape; break;
-                case "Center" when edge == "Left": _data.Region_Left_Center = shape; break;
-                case "Bottom" when edge == "Left": _data.Region_Left_Bottom = shape; break;
-                case "Top" when edge == "Right": _data.Region_Right_Top = shape; break;
-                case "Center" when edge == "Right": _data.Region_Right_Center = shape; break;
-                case "Bottom" when edge == "Right": _data.Region_Right_Bottom = shape; break;
-                default: return;
-            }
+            var r = RegionTable.Find(RegionTable.KeyOf(edge, region));
+            if (r == null) return;   // 未知区域：与原实现一致 —— 不写、不落盘
+            r.SetShape(_data, shape);
             Save();
         }
 
@@ -482,10 +489,21 @@ namespace ShoreHue.Core.Services.Configuration
             set => SetField(v => _data.ClipboardMaxCount = v, value, 1, 50);
         }
 
+        /// <summary>
+        /// 剪贴板**单条最多显示几行**（1–20，默认 4）。
+        ///
+        /// ★ 语义变更（2026-09-13）：旧语义是"最多显示多少字符"（值域 10–500，默认 100），
+        ///   而且查遍全仓库**没有任何消费者** —— 界面有滑块、文档有文案，代码里没人读它，
+        ///   是个纯粹的摆设；真正把文字砍掉的是 ClipboardManager 里硬编码的 500 字 + 界面 CharacterEllipsis。
+        ///   现在改为"行数"并由剪贴板小组件真正读取（`MaxHeight = 行数 × 行高`）。
+        ///
+        /// ★ 旧值迁移：老配置里存的是 100/500 这类字符数，在新语义下等于"100 行"（＝不限），
+        ///   阈值会形同失效。所以 getter 把超出新值域的值一律归一到默认 4。
+        /// </summary>
         public int ClipboardDisplayLength
         {
-            get => _data.ClipboardDisplayLength;
-            set => SetField(v => _data.ClipboardDisplayLength = v, value, 10, 500);
+            get => _data.ClipboardDisplayLength is >= 1 and <= 20 ? _data.ClipboardDisplayLength : 4;
+            set => SetField(v => _data.ClipboardDisplayLength = v, value, 1, 20);
         }
 
         public int ClipboardImageMaxWidth
@@ -508,7 +526,7 @@ namespace ShoreHue.Core.Services.Configuration
 
         public string DefaultNoteColor
         {
-            get => _data.DefaultNoteColor ?? "#FFFF99";
+            get => _data.DefaultNoteColor ?? "#00000000";
             set => SetField(v => _data.DefaultNoteColor = v, value);
         }
 
@@ -516,6 +534,102 @@ namespace ShoreHue.Core.Services.Configuration
         {
             get => _data.NoteShowTitleByDefault;
             set => SetField(v => _data.NoteShowTitleByDefault = v, value);
+        }
+
+        // ========== 划词翻译面板（在「设置 → 面板 → 划词翻译」里配） ==========
+
+        public int TextAiHistoryLimit
+        {
+            get => _data.TextAiHistoryLimit;
+            set => SetField(v => _data.TextAiHistoryLimit = Math.Max(0, value), value);
+        }
+
+        public string TextAiHistoryJson
+        {
+            get => _data.TextAiHistoryJson ?? "";
+            set => SetField(v => _data.TextAiHistoryJson = v, value);
+        }
+
+        public string TextAiTargetLanguage
+        {
+            get => _data.TextAiTargetLanguage ?? "";
+            set => SetField(v => _data.TextAiTargetLanguage = value, value);
+        }
+
+        // ========== 计算器面板（在「设置 → 面板 → 计算器」里配） ==========
+
+        public int CalculatorHistoryLimit
+        {
+            get => _data.CalculatorHistoryLimit;
+            set => SetField(v => _data.CalculatorHistoryLimit = Math.Max(0, value), value);
+        }
+
+        public string CalculatorHistoryJson
+        {
+            get => _data.CalculatorHistoryJson ?? "";
+            set => SetField(v => _data.CalculatorHistoryJson = v, value);
+        }
+
+        // ========== 任务栏标签分组（当用户设置持久化） ==========
+
+        public string TaskbarGroupsJson
+        {
+            get => _data.TaskbarGroupsJson ?? "";
+            set => SetField(v => _data.TaskbarGroupsJson = v, value);
+        }
+
+        // ========== 插件运行时守卫（安全模式 / 异常熔断） ==========
+
+        public List<string> CircuitBrokenPlugins
+        {
+            get => _data.CircuitBrokenPlugins ?? new List<string>();
+            set => SetField(v => _data.CircuitBrokenPlugins = v ?? new List<string>(), value);
+        }
+
+        public bool SafeModeRequested
+        {
+            get => _data.SafeModeRequested;
+            set => SetField(v => _data.SafeModeRequested = v, value);
+        }
+
+        public int UncleanExitCount
+        {
+            get => _data.UncleanExitCount;
+            set => SetField(v => _data.UncleanExitCount = Math.Max(0, value), value);
+        }
+
+        // ========== 剪贴板面板（在「设置 → 面板 → 剪贴板」里开关） ==========
+
+        public bool ClipboardKeyboardNav
+        {
+            get => _data.ClipboardKeyboardNav;
+            set => SetField(v => _data.ClipboardKeyboardNav = v, value);
+        }
+
+        public bool ClipboardShowSourceApp
+        {
+            get => _data.ClipboardShowSourceApp;
+            set => SetField(v => _data.ClipboardShowSourceApp = v, value);
+        }
+
+        // ========== 便签快捷键（在「设置 → 面板 → 便签」里录入；在便签面板内生效） ==========
+
+        public string NoteHotkeyNew
+        {
+            get => string.IsNullOrWhiteSpace(_data.NoteHotkeyNew) ? "Ctrl+Alt+N" : _data.NoteHotkeyNew!;
+            set => SetField(v => _data.NoteHotkeyNew = v, value);
+        }
+
+        public string NoteHotkeyDelete
+        {
+            get => string.IsNullOrWhiteSpace(_data.NoteHotkeyDelete) ? "Ctrl+Alt+D" : _data.NoteHotkeyDelete!;
+            set => SetField(v => _data.NoteHotkeyDelete = v, value);
+        }
+
+        public string NoteHotkeyNext
+        {
+            get => string.IsNullOrWhiteSpace(_data.NoteHotkeyNext) ? "Ctrl+Alt+Right" : _data.NoteHotkeyNext!;
+            set => SetField(v => _data.NoteHotkeyNext = v, value);
         }
 
         public bool UseAutoSize
@@ -660,6 +774,17 @@ namespace ShoreHue.Core.Services.Configuration
             };
         }
 
+        /// <summary>
+        /// 清掉某个插件小组件的启用状态覆盖记录（删除插件时调用）。
+        /// ★ 必须清：覆盖记录是"用户显式开关"的持久化，不会随插件删除自动消失 ——
+        ///   留着它，同 id 的包以后重新装回来会**默认禁用**，而界面上没有任何线索说明原因。
+        /// </summary>
+        public void ClearWidgetEnabledOverride(string widgetKey)
+        {
+            if (string.IsNullOrEmpty(widgetKey)) return;
+            if (_data.WidgetPluginOverrides.Remove(widgetKey)) Save();
+        }
+
         public void SetWidgetEnabled(string widgetKey, bool enabled)
         {
             // ★ 用户 C# 插件小组件
@@ -697,6 +822,35 @@ namespace ShoreHue.Core.Services.Configuration
             if (string.IsNullOrEmpty(providerId)) return;
             _data.StatusProviderEnabled[providerId] = enabled;
             Save();
+        }
+
+        // ========== 插件信任（安全 v2）：id + 内容哈希 ==========
+        // ★ 三个方法都是**显式接口实现**（IPluginTrustStore 是 internal）：
+        //   于是"信任的读写"在 SettingsManager 的公开面上根本不存在，插件即使拿到本实例也调不到。
+        //   别改回 public —— 那等于把信任的写权限递给外来代码（见 IPluginTrustStore 注释）。
+        /// <summary>该插件当前内容是否被用户显式信任（内容变化 → 哈希不匹配 → 自动失效）。</summary>
+        bool IPluginTrustStore.IsPluginTrusted(string pluginId, string contentHash)
+        {
+            if (string.IsNullOrEmpty(pluginId) || string.IsNullOrEmpty(contentHash)) return false;
+            var map = _data.TrustedPlugins;
+            if (map == null) return false;
+            return map.TryGetValue(pluginId, out var h) && string.Equals(h, contentHash, StringComparison.Ordinal);
+        }
+
+        /// <summary>记录信任（界面点"信任"或海床保存可信项时调用）。</summary>
+        void IPluginTrustStore.SetPluginTrusted(string pluginId, string contentHash)
+        {
+            if (string.IsNullOrEmpty(pluginId) || string.IsNullOrEmpty(contentHash)) return;
+            _data.TrustedPlugins ??= new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            _data.TrustedPlugins[pluginId] = contentHash;
+            Save();
+        }
+
+        /// <summary>撤销信任。</summary>
+        void IPluginTrustStore.RevokePluginTrust(string pluginId)
+        {
+            if (string.IsNullOrEmpty(pluginId)) return;
+            if (_data.TrustedPlugins?.Remove(pluginId) == true) Save();
         }
 
         // ========== 划词翻译 热键 ==========
@@ -753,57 +907,17 @@ namespace ShoreHue.Core.Services.Configuration
             }
         }
 
-        // ========== 16个独立区域尺寸（含四角） ==========
+        // ========== 16个独立区域尺寸（含四角）==========
+        // ★ 键 → 字段 的映射只有一处：RegionTable（四角的尺寸字段多一层 Corner_，这种例外也收在表里）。
+        /// <summary>该区域的用户自定义尺寸（宽,高）；0 = 未自定义，未知键返回 (0,0)。</summary>
         public (double width, double height) GetUserSize(string regionKey)
-        {
-            return regionKey switch
-            {
-                // 12个边缘区域
-                "Top_Left" => (_data.UserWidth_Top_Left, _data.UserHeight_Top_Left),
-                "Top_Center" => (_data.UserWidth_Top_Center, _data.UserHeight_Top_Center),
-                "Top_Right" => (_data.UserWidth_Top_Right, _data.UserHeight_Top_Right),
-                "Bottom_Left" => (_data.UserWidth_Bottom_Left, _data.UserHeight_Bottom_Left),
-                "Bottom_Center" => (_data.UserWidth_Bottom_Center, _data.UserHeight_Bottom_Center),
-                "Bottom_Right" => (_data.UserWidth_Bottom_Right, _data.UserHeight_Bottom_Right),
-                "Left_Top" => (_data.UserWidth_Left_Top, _data.UserHeight_Left_Top),
-                "Left_Center" => (_data.UserWidth_Left_Center, _data.UserHeight_Left_Center),
-                "Left_Bottom" => (_data.UserWidth_Left_Bottom, _data.UserHeight_Left_Bottom),
-                "Right_Top" => (_data.UserWidth_Right_Top, _data.UserHeight_Right_Top),
-                "Right_Center" => (_data.UserWidth_Right_Center, _data.UserHeight_Right_Center),
-                "Right_Bottom" => (_data.UserWidth_Right_Bottom, _data.UserHeight_Right_Bottom),
-                // ★★★ 4个角落区域 ★★★
-                "TopLeft" => (_data.UserWidth_Corner_TopLeft, _data.UserHeight_Corner_TopLeft),
-                "TopRight" => (_data.UserWidth_Corner_TopRight, _data.UserHeight_Corner_TopRight),
-                "BottomLeft" => (_data.UserWidth_Corner_BottomLeft, _data.UserHeight_Corner_BottomLeft),
-                "BottomRight" => (_data.UserWidth_Corner_BottomRight, _data.UserHeight_Corner_BottomRight),
-                _ => (0, 0)
-            };
-        }
+            => RegionTable.Find(regionKey)?.GetSize(_data) ?? (0, 0);
 
         public void SetUserSize(string regionKey, double width, double height)
         {
-            switch (regionKey)
-            {
-                // 12个边缘区域
-                case "Top_Left": _data.UserWidth_Top_Left = width; _data.UserHeight_Top_Left = height; break;
-                case "Top_Center": _data.UserWidth_Top_Center = width; _data.UserHeight_Top_Center = height; break;
-                case "Top_Right": _data.UserWidth_Top_Right = width; _data.UserHeight_Top_Right = height; break;
-                case "Bottom_Left": _data.UserWidth_Bottom_Left = width; _data.UserHeight_Bottom_Left = height; break;
-                case "Bottom_Center": _data.UserWidth_Bottom_Center = width; _data.UserHeight_Bottom_Center = height; break;
-                case "Bottom_Right": _data.UserWidth_Bottom_Right = width; _data.UserHeight_Bottom_Right = height; break;
-                case "Left_Top": _data.UserWidth_Left_Top = width; _data.UserHeight_Left_Top = height; break;
-                case "Left_Center": _data.UserWidth_Left_Center = width; _data.UserHeight_Left_Center = height; break;
-                case "Left_Bottom": _data.UserWidth_Left_Bottom = width; _data.UserHeight_Left_Bottom = height; break;
-                case "Right_Top": _data.UserWidth_Right_Top = width; _data.UserHeight_Right_Top = height; break;
-                case "Right_Center": _data.UserWidth_Right_Center = width; _data.UserHeight_Right_Center = height; break;
-                case "Right_Bottom": _data.UserWidth_Right_Bottom = width; _data.UserHeight_Right_Bottom = height; break;
-                // ★★★ 4个角落区域 ★★★
-                case "TopLeft": _data.UserWidth_Corner_TopLeft = width; _data.UserHeight_Corner_TopLeft = height; break;
-                case "TopRight": _data.UserWidth_Corner_TopRight = width; _data.UserHeight_Corner_TopRight = height; break;
-                case "BottomLeft": _data.UserWidth_Corner_BottomLeft = width; _data.UserHeight_Corner_BottomLeft = height; break;
-                case "BottomRight": _data.UserWidth_Corner_BottomRight = width; _data.UserHeight_Corner_BottomRight = height; break;
-                default: return;
-            }
+            var r = RegionTable.Find(regionKey);
+            if (r == null) return;   // 未知区域：与原实现一致 —— 不写、不落盘
+            r.SetSize(_data, width, height);
             Save();
         }
 
@@ -970,8 +1084,14 @@ namespace ShoreHue.Core.Services.Configuration
         public System.Collections.Generic.List<ShoreHue.Core.Models.CustomPanelDefinition> CustomPanels
         {
             get => _data.CustomPanels ??= new System.Collections.Generic.List<ShoreHue.Core.Models.CustomPanelDefinition>();
-            set { _data.CustomPanels = value; Save(); }
+            // ★ setter 降为 internal（宿主面经由 ISettingsHost.SetCustomPanels）：
+            //   公开面上不再存在"整表替换面板列表"的写入口。
+            internal set { _data.CustomPanels = value; Save(); }
         }
+
+        // ISettingsHost：宿主面的整表替换入口
+        void ISettingsHost.SetCustomPanels(System.Collections.Generic.List<ShoreHue.Core.Models.CustomPanelDefinition>? panels)
+            => CustomPanels = panels ?? new System.Collections.Generic.List<ShoreHue.Core.Models.CustomPanelDefinition>();
 
         public System.Collections.Generic.Dictionary<string, string> AppliedPresets
         {
@@ -1011,52 +1131,16 @@ namespace ShoreHue.Core.Services.Configuration
             set { _data.RegionDebounceMs = Math.Max(30, Math.Min(300, value)); MarkCustomIfPreset(); Save(); }
         }
 
+        // ★ 键 → 字段 的映射只有一处：RegionTable。
+        /// <summary>该区域用哪个面板（Default/Taskbar/Widget/…）；未知键返回 Default。</summary>
         public string GetRegionPanel(string regionKey)
-        {
-            return regionKey switch
-            {
-                "Top_Left" => _data.RegionPanel_Top_Left ?? "Default",
-                "Top_Center" => _data.RegionPanel_Top_Center ?? "Default",
-                "Top_Right" => _data.RegionPanel_Top_Right ?? "Default",
-                "Bottom_Left" => _data.RegionPanel_Bottom_Left ?? "Default",
-                "Bottom_Center" => _data.RegionPanel_Bottom_Center ?? "Default",
-                "Bottom_Right" => _data.RegionPanel_Bottom_Right ?? "Default",
-                "Left_Top" => _data.RegionPanel_Left_Top ?? "Default",
-                "Left_Center" => _data.RegionPanel_Left_Center ?? "Default",
-                "Left_Bottom" => _data.RegionPanel_Left_Bottom ?? "Default",
-                "Right_Top" => _data.RegionPanel_Right_Top ?? "Default",
-                "Right_Center" => _data.RegionPanel_Right_Center ?? "Default",
-                "Right_Bottom" => _data.RegionPanel_Right_Bottom ?? "Default",
-                "TopLeft" => _data.RegionPanel_TopLeft ?? "Default",
-                "TopRight" => _data.RegionPanel_TopRight ?? "Default",
-                "BottomLeft" => _data.RegionPanel_BottomLeft ?? "Default",
-                "BottomRight" => _data.RegionPanel_BottomRight ?? "Default",
-                _ => "Default"
-            };
-        }
+            => RegionTable.Find(regionKey)?.GetPanel(_data) ?? RegionTable.DefaultPanel;
 
         public void SetRegionPanel(string regionKey, string panelType)
         {
-            switch (regionKey)
-            {
-                case "Top_Left": _data.RegionPanel_Top_Left = panelType; break;
-                case "Top_Center": _data.RegionPanel_Top_Center = panelType; break;
-                case "Top_Right": _data.RegionPanel_Top_Right = panelType; break;
-                case "Bottom_Left": _data.RegionPanel_Bottom_Left = panelType; break;
-                case "Bottom_Center": _data.RegionPanel_Bottom_Center = panelType; break;
-                case "Bottom_Right": _data.RegionPanel_Bottom_Right = panelType; break;
-                case "Left_Top": _data.RegionPanel_Left_Top = panelType; break;
-                case "Left_Center": _data.RegionPanel_Left_Center = panelType; break;
-                case "Left_Bottom": _data.RegionPanel_Left_Bottom = panelType; break;
-                case "Right_Top": _data.RegionPanel_Right_Top = panelType; break;
-                case "Right_Center": _data.RegionPanel_Right_Center = panelType; break;
-                case "Right_Bottom": _data.RegionPanel_Right_Bottom = panelType; break;
-                case "TopLeft": _data.RegionPanel_TopLeft = panelType; break;
-                case "TopRight": _data.RegionPanel_TopRight = panelType; break;
-                case "BottomLeft": _data.RegionPanel_BottomLeft = panelType; break;
-                case "BottomRight": _data.RegionPanel_BottomRight = panelType; break;
-                default: return;
-            }
+            var r = RegionTable.Find(regionKey);
+            if (r == null) return;   // 未知区域：与原实现一致 —— 不写、不落盘
+            r.SetPanel(_data, panelType);
             Save();
         }
     }

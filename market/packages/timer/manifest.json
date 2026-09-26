@@ -5,6 +5,7 @@
   "category": "小组件",
   "version": "1.0.0",
   "author": "timecolors",
+  "publisherId": 176211220,
   "description": "ShoreHue 内置计时器：倒计时 / 正计时 / 闹钟。",
   "baseType": "Widget",
   "parentKey": "panel-widgets",

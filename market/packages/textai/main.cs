@@ -92,12 +92,11 @@ namespace ShoreHue.Builtin
 
         public async Task CaptureAndTranslateAsync()
         {
-            var ai = AiSettingsStore.Load();
-            if (!ai.Enabled || string.IsNullOrWhiteSpace(ai.ApiKey)) { ShowState("未配置 AI（请在设置中填写）", true); return; }
+            // ★ 安全 v2：外来来源通过宿主窄接口读取选中文本（不再直接访问宿主内部能力与 AI 密钥）
             ShowState("读取选中文本…", false);
-            var capture = await SelectedTextCapture.CaptureAsync(ownHwnd: GetOwnHwnd());
-            if (!capture.Success) { ShowState(capture.Message.Length > 0 ? capture.Message : "未选中文字", true); return; }
-            await TranslateAsync(capture.Text!, ai);
+            string captured = await ShoreHue.UI.Widgets.HostCapabilities.CaptureSelectedTextAsync();
+            if (string.IsNullOrWhiteSpace(captured)) { ShowState("未选中文字（或未配置 AI）", true); return; }
+            await TranslateAsync(captured);
         }
 
         private IntPtr GetOwnHwnd()
@@ -106,7 +105,7 @@ namespace ShoreHue.Builtin
             catch { return IntPtr.Zero; }
         }
 
-        private async Task TranslateAsync(string text, AiSettings ai)
+        private async Task TranslateAsync(string text)
         {
             Cancel();
             _cts = new CancellationTokenSource();
@@ -121,14 +120,8 @@ namespace ShoreHue.Builtin
                 string prompt = (chinese
                     ? "请将以下内容翻译成英文。只输出译文，不要任何解释、引号或多余文字：\n\n"
                     : "请将以下内容翻译成中文。只输出译文，不要任何解释、引号或多余文字：\n\n") + text;
-                var translateSettings = new AiSettings
-                {
-                    Enabled = ai.Enabled, BaseUrl = ai.BaseUrl, ApiKey = ai.ApiKey, Model = ai.Model,
-                    Temperature = Math.Min(ai.Temperature, 0.5), ContextWindowTokens = ai.ContextWindowTokens,
-                    SystemPrompt = "你是翻译引擎，只输出译文。"
-                };
-                var history = new List<ChatMessage>();
-                string full = await _client.StreamChatAsync(translateSettings, history, prompt, delta =>
+                // ★ 安全 v2：由宿主发起 AI 请求（密钥不出宿主），插件只拿流式增量
+                string full = await ShoreHue.UI.Widgets.HostCapabilities.AskAiAsync(prompt, delta =>
                 {
                     Dispatcher.Invoke(() => { if (!ct.IsCancellationRequested) _resultText.Text += delta; });
                 }, ct);

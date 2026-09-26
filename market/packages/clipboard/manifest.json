@@ -5,6 +5,7 @@
   "category": "小组件",
   "version": "1.0.0",
   "author": "timecolors",
+  "publisherId": 176211220,
   "description": "ShoreHue 内置剪贴板历史：复制记录 / 搜索 / 固定。",
   "baseType": "Widget",
   "parentKey": "panel-widgets",

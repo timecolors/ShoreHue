@@ -56,6 +56,7 @@ namespace ShoreHue.UI.AI
         }
 
         /// <summary>截图模式：不读真实会话数据（ScreenshotGen 离屏渲染用）。</summary>
+        /// <summary>测试接缝：tools/ScreenshotGen 生成商店截图时置 true，以空会话渲染（勿当死代码删除）。</summary>
         internal static bool UseEmptyForScreenshot;
         private readonly AiChatClient _client = new();
         private readonly ObservableCollection<ChatItem> _items = new();
@@ -76,6 +77,8 @@ namespace ShoreHue.UI.AI
         private System.Windows.Threading.DispatcherTimer? _cursorAimTimer;
         private bool _cursorOutputMode;
         private bool _cursorAiming;
+        private bool _cursorAimHooked;     // Tick 只挂一次（见 EnterAim 处注释）
+        private bool _cursorFlushHooked;
 
         /// <summary>面板内“打开设置”按钮被点击时触发（由主窗口订阅）。</summary>
         public static event Action? OpenSettingsRequested;
@@ -107,6 +110,15 @@ namespace ShoreHue.UI.AI
             RenderCurrentSession();
             RefreshHeader();
             UpdateEmptyState();
+
+            // ★ 离开可视树时收尾：AiChatView 不是 IWidget（PanelContentController 不会调 OnDeactivated），
+            //   而瞄准/输出两个定时器与 CursorOutputService 的锁定在面板切走后没人会停 ——
+            //   实测会留下"面板已关，仍每秒 4 次轮询并保持光标输出锁定"的常驻状态。
+            Unloaded += (_, _) =>
+            {
+                try { StopCursorOutput(); }
+                catch { /* 卸载清理尽力而为：定时器/锁没释放不影响主流程 */ }
+            };
         }
 
         // ============ 会话管理 ============
@@ -269,7 +281,7 @@ namespace ShoreHue.UI.AI
             if (text.Length == 0) return;
 
             // 新会话：标记等待模型生成标题（回复完成后调用）
-            if (_current.Title == LocalizationManager.Instance["Ai_NewChatTitle"])
+            if (ShoreHue.Core.Services.Ai.AiSession.IsUntitled(_current.Title))
             {
                 _needsTitleGeneration = true;
                 _pendingTitleFirstText = text;
@@ -313,7 +325,7 @@ namespace ShoreHue.UI.AI
             }
 
             // 新会话自动命名
-            if (_current.Title == LocalizationManager.Instance["Ai_NewChatTitle"])
+            if (ShoreHue.Core.Services.Ai.AiSession.IsUntitled(_current.Title))
             {
                 _current.Title = LocalizationManager.Instance["Ai_ImageChatTitle"];
                 SessionCombo.SelectedItem = _current;
@@ -380,7 +392,7 @@ namespace ShoreHue.UI.AI
             }
 
             // 新会话自动命名
-            if (_current.Title == LocalizationManager.Instance["Ai_NewChatTitle"])
+            if (ShoreHue.Core.Services.Ai.AiSession.IsUntitled(_current.Title))
             {
                 _current.Title = display.Length > 20 ? display[..20] + "…" : display;
                 SessionCombo.SelectedItem = _current;
@@ -582,26 +594,31 @@ namespace ShoreHue.UI.AI
                     _needsTitleGeneration = false;
                     string firstText = _pendingTitleFirstText;
                     _pendingTitleFirstText = "";
-                    _ = GenerateSessionTitleAsync(settings, firstText);
+                    _ = GenerateSessionTitleAsync(settings, firstText, _current);
                 }
             }
         }
 
         /// <summary>用模型为第一个问题生成简洁标题；失败回退原文截断。</summary>
-        private async Task GenerateSessionTitleAsync(AiSettings settings, string firstUserText)
+        private async Task GenerateSessionTitleAsync(AiSettings settings, string firstUserText,
+            ShoreHue.Core.Services.Ai.AiSession target)
         {
             string fallback = firstUserText.Length > 20 ? firstUserText[..20] + "…" : firstUserText;
             try
             {
                 string? title = await System.Threading.Tasks.Task.Run(
                     () => _client.GenerateTitleAsync(settings, firstUserText));
-                _current.Title = string.IsNullOrWhiteSpace(title) ? fallback : title!;
+                target.Title = string.IsNullOrWhiteSpace(title) ? fallback : title!;
             }
             catch
             {
-                _current.Title = fallback;
+                target.Title = fallback;
             }
-            SessionCombo.SelectedItem = _current; // 刷新下拉显示
+            // ★ 必须写回**发起时捕获的那个会话**：以前用的是字段 `_current`，
+            //   而这中间有 await —— 用户完全可以切到别的会话，于是标题被写到了
+            //   用户后来选中的那个会话上（把它的标题覆盖掉），原会话仍是"新对话"。
+            //   只有当前显示的正是它时才需要刷新下拉选中项。
+            if (ReferenceEquals(_current, target)) SessionCombo.SelectedItem = _current;
             AiSessionStore.Save(_sessionData);
         }
 
@@ -630,7 +647,9 @@ namespace ShoreHue.UI.AI
                 BtnCursorOutput.Background = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(38, 79, 120));
                 _cursorAimTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-                _cursorAimTimer.Tick += (_, _) => CheckAimTarget();
+                // ★ Tick 只挂一次：以前每次进出瞄准都会再 += 一个同样的处理器，
+                //   同一个 tick 里 CheckAimTarget 被调用 N 次。
+                if (!_cursorAimHooked) { _cursorAimTimer.Tick += (_, _) => CheckAimTarget(); _cursorAimHooked = true; }
                 _cursorAimTimer.Start();
             }
         }
@@ -646,7 +665,7 @@ namespace ShoreHue.UI.AI
                 _cursorAimTimer?.Stop();
                 _cursorOutputMode = true;
                 _cursorFlushTimer ??= new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-                _cursorFlushTimer.Tick += (_, _) => FlushCursorBuffer();
+                if (!_cursorFlushHooked) { _cursorFlushTimer.Tick += (_, _) => FlushCursorBuffer(); _cursorFlushHooked = true; }
                 _cursorFlushTimer.Start();
                 BtnCursorOutput.Content = LocalizationManager.Instance["Ai_CursorOutputActive"];
             }
@@ -734,7 +753,9 @@ namespace ShoreHue.UI.AI
         {
             if ((sender as Button)?.Tag is ChatItem item && !string.IsNullOrEmpty(item.PlainText))
             {
-                try { Clipboard.SetText(item.PlainText); } catch { }
+                // 用户点了"复制"却没进剪贴板（剪贴板被别的程序占用是常见原因）
+                try { Clipboard.SetText(item.PlainText); }
+                catch (Exception ex) { ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[AI] 复制回复到剪贴板失败：{ex.Message}"); }
             }
         }
 
@@ -749,12 +770,14 @@ namespace ShoreHue.UI.AI
             {
                 var dlg = new Microsoft.Win32.SaveFileDialog
                 {
-                    Filter = "Markdown 文件 (*.md)|*.md|文本文件 (*.txt)|*.txt",
-                    FileName = "AI 回复.md"
+                    Filter = LocalizationManager.Instance["Ai_SaveDialogFilter"],
+                    FileName = LocalizationManager.Instance["Ai_ReplyFileName"]
                 };
                 if (dlg.ShowDialog() == true)
                 {
-                    try { System.IO.File.WriteAllText(dlg.FileName, item.PlainText); } catch { }
+                    // 导出失败必须留痕：用户以为文件已经存下来了
+                    try { System.IO.File.WriteAllText(dlg.FileName, item.PlainText); }
+                    catch (Exception ex) { ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[AI] 导出 Markdown 失败 {dlg.FileName}：{ex.Message}"); }
                 }
             }
         }

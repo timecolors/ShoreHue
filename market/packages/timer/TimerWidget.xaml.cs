@@ -10,7 +10,7 @@ using ShoreHue.UI.Widgets;
 
 namespace ShoreHue.UI.Widgets.Timer
 {
-    public partial class TimerWidget : UserControl, IWidget
+    public partial class TimerWidget : UserControl, IWidget, IWidgetFooter
     {
         private enum TimerMode { CountUp, CountDown, Alarm }
 
@@ -49,7 +49,8 @@ namespace ShoreHue.UI.Widgets.Timer
             InitializeComponent();
             _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
             _timer.Tick += OnTick;
-            _timer.Start();
+            // ★ 不在构造里启动：小组件实例会被缓存（面板切走后仍存活），
+            //   常驻 Start 就是每秒醒 4 次、永不停止。改由 OnActivated/OnDeactivated 管生命周期。
             ApplyMode();
             UpdateDisplay();
         }
@@ -58,9 +59,19 @@ namespace ShoreHue.UI.Widgets.Timer
 
         public UserControl CreateView() => this;
 
-        public void OnActivated() { }
+        public void OnActivated() { StartTicking(); }
 
-        public void OnDeactivated() { }
+        /// <summary>★ 面板切走就停表：实例仍在缓存里，但不再空转。
+        /// 计时靠 EndUtc/StartUtc 绝对时刻，重挂载后 OnActivated 续上即可，进度不会丢。</summary>
+        public void OnDeactivated() { _timer.Stop(); }
+
+        /// <summary>有正在跑的计时/闹钟才需要 tick；否则停掉（空闲零唤醒）。</summary>
+        private void StartTicking()
+        {
+            bool anyRunning = _countUp.Running || _countDown.Running || _alarm.Running;
+            if (anyRunning) { if (!_timer.IsEnabled) _timer.Start(); }
+            else _timer.Stop();
+        }
 
         public FrameworkElement GetFooterControl()
         {
@@ -119,13 +130,28 @@ namespace ShoreHue.UI.Widgets.Timer
             PresetPanel.Visibility = _mode == TimerMode.CountDown ? Visibility.Visible : Visibility.Collapsed;
             ProgressArea.Visibility = _mode == TimerMode.CountDown ? Visibility.Visible : Visibility.Collapsed;
 
-            TxtInputUnit.Text = _mode == TimerMode.Alarm ? LocalizationManager.Instance["Timer_InputUnit"] : LocalizationManager.Instance["UI_TimerWidget_419"];
-            TxtHour.ToolTip = _mode == TimerMode.Alarm
-                ? LocalizationManager.Instance["Timer_TipTargetHours"]
-                : LocalizationManager.Instance["Timer_TipHours"];
-            TxtMin.ToolTip = _mode == TimerMode.Alarm
-                ? LocalizationManager.Instance["Timer_TipTargetMinutes"]
-                : LocalizationManager.Instance["Timer_TipMinutes"];
+            // ★ 必须用"重新绑定"而不是直接赋值 `.Text = ...`：
+            //   XAML 里这几处是 `{Binding Item[键], Source=LocalizationManager.Instance}` 的**活绑定**，
+            //   直接赋值会把绑定整个替换掉（BindingExpression 被清空）—— 于是用户切换界面语言后，
+            //   这几处文字/提示**永远不再跟随**（而同一个界面里其它文字都会变）。
+            BindLoc(TxtInputUnit, TextBlock.TextProperty,
+                _mode == TimerMode.Alarm ? "Timer_InputUnit" : "UI_TimerWidget_419");
+            BindLoc(TxtHour, FrameworkElement.ToolTipProperty,
+                _mode == TimerMode.Alarm ? "Timer_TipTargetHours" : "Timer_TipHours");
+            BindLoc(TxtMin, FrameworkElement.ToolTipProperty,
+                _mode == TimerMode.Alarm ? "Timer_TipTargetMinutes" : "Timer_TipMinutes");
+        }
+
+        /// <summary>把控件属性重新绑到本地化索引器（保留"跟随语言切换"的语义）。</summary>
+        private static void BindLoc(System.Windows.DependencyObject target,
+            System.Windows.DependencyProperty prop, string key)
+        {
+            System.Windows.Data.BindingOperations.SetBinding(target, prop,
+                new System.Windows.Data.Binding("Item[" + key + "]")
+                {
+                    Source = LocalizationManager.Instance,
+                    Mode = System.Windows.Data.BindingMode.OneWay
+                });
         }
 
         // ================= 预设（仅倒计时） =================
@@ -185,6 +211,7 @@ namespace ShoreHue.UI.Widgets.Timer
                     break;
             }
             UpdateDisplay();
+            StartTicking();   // 起停计时器（空闲时不空转，见 StartTicking 注释）
         }
 
         private void ToggleAlarm()
@@ -263,6 +290,7 @@ namespace ShoreHue.UI.Widgets.Timer
         {
             ResetState(Current);
             UpdateDisplay();
+            StartTicking();
         }
 
         private void ResetState(TimerState s)
@@ -287,6 +315,7 @@ namespace ShoreHue.UI.Widgets.Timer
         private void OnTick(object? sender, EventArgs e)
         {
             TickAlarm();
+            TickCountDown();
 
             bool needRefresh = _mode switch
             {
@@ -296,6 +325,29 @@ namespace ShoreHue.UI.Widgets.Timer
                 _ => false
             };
             if (needRefresh) UpdateDisplay();
+            StartTicking();   // 没有在跑的计时就把表停掉（倒计时/闹钟到点后不再空转）
+        }
+
+        /// <summary>
+        /// 倒计时归零：弹通知 + 提示音 + 进入"时间到"状态。
+        /// ★ 以前只有闹钟会触发提醒，倒计时结束时这一段（红色 TimeUp + 「停止提醒」按钮）**永远不可达** ——
+        ///   界面会停在 "计时中… 00:00"，既不响也不弹，用户根本不知道时间到了。
+        /// </summary>
+        private void TickCountDown()
+        {
+            var s = _countDown;
+            if (!s.Running || !s.EndUtc.HasValue) return;
+            if (DateTime.UtcNow < s.EndUtc.Value) return;
+
+            s.Running = false;
+            s.EndUtc = null;
+            s.PausedRemaining = 0;
+            s.AlarmTriggered = true;
+
+            SystemToast.Show("ShoreHue", LocalizationManager.Instance["Timer_TimeUp"]);
+            try { System.Media.SystemSounds.Exclamation.Play(); } catch { /* 提示音失败不影响提醒（Toast 已出） */ }
+
+            if (_mode == TimerMode.CountDown) UpdateDisplay();
         }
 
         /// <summary>

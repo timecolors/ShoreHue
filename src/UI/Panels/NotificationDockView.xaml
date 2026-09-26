@@ -30,42 +30,78 @@
             </Button>
         </Grid>
 
-        <!-- 通知列表 -->
+        <!-- 通知列表：按应用分组（组头 = 应用名 + 条数），每条可单独关闭。
+             ★ 分组与「单条关闭」的决策在纯类 NotificationGrouping 里（与海床模板共用同一份逻辑），
+               这里只做数据绑定；条目点击 = 打开来源应用，✕ = 只关这一条。 -->
         <ListBox Grid.Row="1"
                  x:Name="NotificationList"
                  Style="{StaticResource DarkListBox}"
-                 FontSize="12">
+                 FontSize="12"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Padding" Value="0"/>
+                    <Setter Property="Margin" Value="0"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="Focusable" Value="False"/>
+                </Style>
+            </ListBox.ItemContainerStyle>
             <ListBox.ItemTemplate>
                 <DataTemplate>
-                    <Border Background="Transparent"
-                            Cursor="Hand"
-                            Padding="2,1"
-                            MouseLeftButtonUp="Item_Click">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Margin="0,0,8,0">
-                                <TextBlock Text="{Binding AppName}"
-                                           FontSize="10"
-                                           Foreground="#2B88D8"
-                                           TextTrimming="CharacterEllipsis"/>
-                                <TextBlock Text="{Binding Message}"
-                                           FontSize="12"
-                                           Foreground="#EEEEEE"
-                                           TextWrapping="Wrap"
-                                           MaxHeight="60"
-                                           TextTrimming="CharacterEllipsis"
-                                           Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <TextBlock Grid.Column="1"
-                                       Text="{Binding TimeText}"
-                                       FontSize="9"
-                                       Foreground="#666666"
-                                       VerticalAlignment="Top"/>
-                        </Grid>
-                    </Border>
+                    <StackPanel Margin="0,0,0,6">
+                        <TextBlock Text="{Binding AppLabel}"
+                                   FontSize="10"
+                                   FontWeight="SemiBold"
+                                   Foreground="#2B88D8"
+                                   TextWrapping="Wrap"
+                                   LineHeight="13"
+                                   MaxHeight="26"
+                                   Margin="2,4,2,2"/>
+                        <ItemsControl ItemsSource="{Binding Rows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="Transparent"
+                                            Cursor="Hand"
+                                            Padding="2,1"
+                                            MouseLeftButtonUp="Item_Click">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0"
+                                                       Text="{Binding Message}"
+                                                       FontSize="12"
+                                                       Foreground="#EEEEEE"
+                                                       TextWrapping="Wrap"
+                                                       LineHeight="16"
+                                                       MaxHeight="64"
+                                                       Margin="0,0,8,0"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding Time}"
+                                                       FontSize="9"
+                                                       Foreground="#666666"
+                                                       VerticalAlignment="Top"
+                                                       Margin="0,0,4,0"/>
+                                            <Button Grid.Column="2"
+                                                    Content="✕"
+                                                    FontSize="10"
+                                                    Width="20"
+                                                    Height="20"
+                                                    Padding="0"
+                                                    BorderThickness="0"
+                                                    Background="Transparent"
+                                                    Foreground="#999999"
+                                                    Cursor="Hand"
+                                                    ToolTip="关闭这一条"
+                                                    Click="ItemClose_Click"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
                 </DataTemplate>
             </ListBox.ItemTemplate>
         </ListBox>

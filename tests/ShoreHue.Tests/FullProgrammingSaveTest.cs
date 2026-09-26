@@ -24,34 +24,9 @@ public partial class TestXamlWidget : UserControl, IWidget
     public void OnDeactivated() { }
 }";
 
+        /// <summary>★ 走共享 UI 宿主（同上：一个进程只能有一个 Application）。</summary>
         private static (IWidget? w, string err) RunSta()
-        {
-            (IWidget? w, string err) result = (null, "");
-            Exception? error = null;
-            var t = new Thread(() =>
-            {
-                try
-                {
-                    var app = Application.Current ?? new Application();
-                    if (app.Resources.MergedDictionaries.Count == 0)
-                        app.Resources.MergedDictionaries.Add(new ResourceDictionary
-                        { Source = new Uri("pack://application:,,,/ShoreHue;component/src/UI/Theme/Theme.xaml") });
-                    _ = typeof(ShoreHue.UI.Localization.LocalizationManager).Assembly;
-                    var (widget, err) = WidgetCompiler.CompileXaml("test-fullprog", Xaml, XamlCs);
-                    result = (widget, err);
-                }
-                catch (Exception ex)
-                {
-                    var sb = new System.Text.StringBuilder();
-                    for (var e = ex; e != null; e = e.InnerException) sb.AppendLine(e.GetType().Name + ": " + e.Message);
-                    result = (null, sb.ToString());
-                }
-            });
-            t.SetApartmentState(ApartmentState.STA); t.Start(); t.Join();
-            if (error != null) result = (null, error.Message);
-            return result;
-        }
-
+            => UiTestHost.Run(() => WidgetCompiler.CompileXaml("test-fullprog", Xaml, XamlCs));
         [Fact]
         public void FullProgramming_XamlCs_Compiles()
         {

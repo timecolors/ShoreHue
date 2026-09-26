@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using ShoreHue.Core.Infrastructure.Logging;
@@ -24,6 +24,11 @@ namespace ShoreHue.Core.Infrastructure.Service
         /// <summary>
         /// 注册服务（按顺序注册，按逆序关闭）
         /// </summary>
+        /// <summary>已注册的服务（只读）。★ 能力层（HostCapabilities）用它做**接口优先**的回退查找：
+        /// 这样"注册一个 IClipboardService 实现"也能被小组件拿到，而不是必须注册那个具体类型。</summary>
+        internal System.Collections.Generic.IEnumerable<IService> All
+            => _services;
+
         public ServiceManager Register(IService service)
         {
             lock (_lock)

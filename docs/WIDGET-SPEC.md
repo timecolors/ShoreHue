@@ -16,7 +16,8 @@
    - 小组件变体（Kind=Widget）→ 出现在小组件面板标签
    - 面板变体（Kind=Panel）→ 出现在 设置→区域 的面板下拉，可分配到任意边缘/角落
    - 配置变体（Kind=Config）→ 仅海床内，保存为单预设可「应用」
-6. **本地自用**：你自己（或 AI 帮你）写的代码默认完全信任、不设限；**市场来源**（在线市场/导入 .dbp）自动走沙箱（见第 5 节）。
+6. **本地自用**：你在海床里**新建/编辑并保存**的代码是可信的（应用会写 trustedSource: true），不设限；
+   **市场来源**（在线市场「拾贝」/ 导入 .shpkg 旧 .dbp）与**手动丢进文件夹的代码**默认走沙箱（见第 5 节）。
 
 ---
 
@@ -236,7 +237,8 @@ public class WeatherWidget : UserControl, IWidget
 
 ## 5. 沙箱限制（仅市场来源；本地自用不限制）
 
-**TrustedSource=false**（在线市场下载 / 导入 .dbp）的代码编译前会做静态沙箱扫描，**硬拦截**以下能力（命中即拒绝编译）：
+**TrustedSource=false**（在线市场下载 / 导入 .shpkg / 手动放入且 manifest 未声明可信）的代码编译前会做三层沙箱检查
+（文本级 + Roslyn 符号级 + 数据流级，见 [SECURITY.md](./SECURITY.md)），**硬拦截**以下能力（命中即拒绝编译）：
 
 ### 禁止的命名空间（整包拦截）
 - `System.Diagnostics`（Process）

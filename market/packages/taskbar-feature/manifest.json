@@ -5,6 +5,7 @@
   "category": "面板功能",
   "version": "1.0.0",
   "author": "timecolors",
+  "publisherId": 176211220,
   "description": "ShoreHue 内置任务栏（薄封装版）：快捷方式 / 运行中窗口 / 拖拽排序，可外层自定义。",
   "baseType": "Panel",
   "parentKey": "panel-features",

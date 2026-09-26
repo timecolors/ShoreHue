@@ -28,7 +28,7 @@ namespace ShoreHue.UI.Seabed
             { "RememberDndMode", "记住勿扰模式开关状态" },
             // ---- 剪贴板 ----
             { "ClipboardMaxCount", "剪贴板历史最大条数" },
-            { "ClipboardDisplayLength", "剪贴板条目显示最大字符数" },
+            { "ClipboardDisplayLength", "剪贴板单条最多显示行数（1–20）" },
             { "ClipboardImageMaxWidth", "剪贴板图片最长边（px，0=不缩放）" },
             { "ClipboardImageCacheLimitMB", "剪贴板图片缓存总大小上限（MB）" },
             // ---- 便签 ----
@@ -95,11 +95,19 @@ namespace ShoreHue.UI.Seabed
             { "WeatherCity", "天气城市（空=按 IP 自动定位）" },
             // ---- 划词翻译 ----
             { "TextAiHotkey", "划词翻译热键（如 Ctrl+Alt+Q，空=未设置）" },
+            { "TextAiTargetLanguage", "划词翻译：目标语言（空=自动判中英）" },
+            { "TextAiHistoryLimit", "划词翻译：历史记录条数（0=不记录）" },
             // ---- 小组件开关 ----
             { "WidgetEnabled_Clipboard", "剪贴板小组件启用" },
+            { "ClipboardKeyboardNav", "剪贴板：键盘操作（↑↓/Enter/数字键/Del）" },
+            { "ClipboardShowSourceApp", "剪贴板：显示来源应用" },
             { "WidgetEnabled_Note", "便签小组件启用" },
+            { "NoteHotkeyNew", "便签快捷键：新建（面板内生效）" },
+            { "NoteHotkeyDelete", "便签快捷键：删除当前（面板内生效）" },
+            { "NoteHotkeyNext", "便签快捷键：切到下一个（面板内生效）" },
             { "WidgetEnabled_Timer", "计时器小组件启用" },
             { "WidgetEnabled_Calculator", "计算器小组件启用" },
+            { "CalculatorHistoryLimit", "计算器：历史记录条数（0=不记录）" },
             { "WidgetEnabled_TextAi", "划词翻译小组件启用" },
             { "WidgetEnabled_Web", "网页小组件启用（开箱不联网，需用户主动开启）" },
             { "WebWidgetUrl", "网页小组件默认地址（WebView2）" },

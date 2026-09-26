@@ -32,6 +32,11 @@ public class ConfigTreeCoverageTests
         "RegionHotkeysEnabled", "RegionHotkeyModifier",   // 键盘呼出区域面板（运行时热键配置，不进配置树）
         "WebBookmarks",                                 // 网页工具收藏列表（设置页管理）
         "WidgetEnabled_Web",                            // 网页工具开关（联网功能默认关）
+        "TrustedPlugins",                               // 插件信任库（id→内容哈希，安全 v2 运行时数据，不进配置树）
+            "CalculatorHistoryJson",                       // 计算历史的存储载体（借设置落盘）；用户只配 CalculatorHistoryLimit
+            "TextAiHistoryJson",                           // 划词翻译历史的存储载体（用户只配 TextAiHistoryLimit）
+            "TaskbarGroupsJson",                           // 任务栏标签分组的存储载体（用户在任务栏里拖拽成组，不配字段）
+            "CircuitBrokenPlugins", "SafeModeRequested", "UncleanExitCount",   // 插件运行时守卫（安全模式/熔断，系统数据）
     };
 
     [Fact]

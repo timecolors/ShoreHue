@@ -78,7 +78,11 @@ namespace ShoreHue.Core.Calculators
                     if (cw >= 10 && ch >= 10) return (cw, ch);
                 }
             }
-            catch { }
+            catch
+            {
+                // 刻意不记日志：这里在测量/动画热路径上（可能每帧都走），下面立刻有 ActualWidth/Height 回退，
+                //   量不出来只是当帧尺寸偏一点，记日志会刷屏
+            }
 
             // 回退：ActualWidth / ActualHeight（仅布局已完成的场景）
             double contentWidth = _contentContainer.ActualWidth;
@@ -102,10 +106,15 @@ namespace ShoreHue.Core.Calculators
         }
 
         /// <summary>
-        /// 计算目标尺寸（含最小值和模式限幅）
+        /// 计算目标尺寸（含最小值和模式限幅）。
+        /// ★ goldenRatio / horizontalLayoutThreshold 由调用方从设置传入（本类拿不到设置）：
+        ///   φ 用已有的 `GoldenRatio` 设置项（默认 1.618）；
+        ///   "竖向还是横向长条"沿用已有的 `HorizontalLayoutThreshold`（宽高比阈值，默认 0.43，
+        ///   值越大越倾向竖向），不另立一套判断口径。
         /// </summary>
         public (double width, double height) CalculateTargetSize(
-            double contentWidth, double contentHeight, string mode)
+            double contentWidth, double contentHeight, string mode,
+            double goldenRatio = 1.618, double horizontalLayoutThreshold = 0.43)
         {
             // ★★★ 确保传入的内容尺寸有效 ★★★
             if (contentWidth < 10) contentWidth = 280;
@@ -132,13 +141,32 @@ namespace ShoreHue.Core.Calculators
                 double maxW = screenW * 2.0 / 5.0;
                 double maxH = screenH * 2.0 / 3.0;
                 targetWidth = Math.Min(targetWidth, maxW);
-                targetHeight = Math.Min(targetHeight, maxH);
 
                 // ★ WidgetSwitcher 固定开销：头部标签栏(≈34) + 底部 Footer(32+8) + 面板 Padding(12)。
                 //   仅按内容高度计算会导致底部 footer 被窗口截断/覆盖。
+                //   ★ 顺序很重要：先加固定开销、再统一钳制。旧实现是"先钳制 → 加 90 → 再钳制"，
+                //   内容本来就接近上限时那 90px 会被第二次钳制吃掉 —— 正好是注释里说要修的那种情况。
                 const double widgetFixedOverhead = 90;
-                targetHeight += widgetFixedOverhead;
-                targetHeight = Math.Min(targetHeight, maxH);
+                targetHeight = Math.Min(targetHeight + widgetFixedOverhead, maxH);
+
+                // ★ 黄金长宽比（2026-09-13）：**长边 = 短边 × φ**，即"把短边补长"，逼近 φ。
+                //   ★ 只加长、绝不压短 —— 压短长边就会重新引入"内容显示不全"（那正是这次要修的）。
+                //   "竖向还是横向长条"沿用既有设置 HorizontalLayoutThreshold（宽高比阈值），
+                //   所以同一份设置既决定面板内部布局方向、也决定这里往哪个轴补，口径只有一个。
+                double phi = goldenRatio > 1.01 ? goldenRatio : 1.618;   // 防呆：设置里被改成 1 或更小
+                bool horizontalStrip = contentWidth / Math.Max(1.0, contentHeight) > horizontalLayoutThreshold;
+                if (horizontalStrip)
+                {
+                    // 横向长条：宽是长边 → 高补到 宽 / φ
+                    double idealHeight = targetWidth / phi;
+                    if (idealHeight > targetHeight) targetHeight = idealHeight;
+                }
+                else
+                {
+                    // 竖向长条：高是长边 → 宽补到 高 / φ
+                    double idealWidth = targetHeight / phi;
+                    if (idealWidth > targetWidth) targetWidth = idealWidth;
+                }
             }
             else if (mode == "Placeholder")
             {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -138,7 +138,7 @@ namespace ShoreHue.UI.Panels
                     if (_dividerElement.IsMouseCaptured)
                         _dividerElement.ReleaseMouseCapture();
                 }
-                catch { }
+                catch { /* 尽力而为：捕获没释放也只影响这一次拖分隔条（下面已把 _isDividerDragging 复位） */ }
             }
             _isDividerDragging = false;
             Mouse.OverrideCursor = null;

@@ -1,9 +1,11 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using ShoreHue.Animation;
 using ShoreHue.Core.Services.Configuration;
+using ShoreHue.Infrastructure.Utils;
 using Xunit;
 
 namespace ShoreHue.Tests
@@ -12,8 +14,26 @@ namespace ShoreHue.Tests
     /// ShapeAnimator 烟雾测试：重构（WPF 动画/渲染帧跟随/切换）后所有公开 API 调用不得抛异常。
     /// 防止"面板移动 bug"回归（跟随/切换/滑入滑出/飞行之间的状态互斥）。
     /// </summary>
-    public class ShapeAnimatorSmokeTests
+    [Collection("WidgetStore")]   // ★ 会改 AppPaths.TestDataRoot，必须串行（见 WidgetStoreCollection 注释）
+    public class ShapeAnimatorSmokeTests : IDisposable
     {
+        private readonly string _dir;
+
+        /// <summary>★ 隔离数据目录：本测试只要构造 SettingsManager，不隔离就会读写**用户真实的 config.json**
+        /// （既是"测试污染真实配置"，也让结果依赖用户当前设置 → 换台机器就飘）。</summary>
+        public ShapeAnimatorSmokeTests()
+        {
+            _dir = Path.Combine(Path.GetTempPath(), "sh_anim_smoke_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_dir);
+            AppPaths.TestDataRoot = _dir;
+        }
+
+        public void Dispose()
+        {
+            AppPaths.TestDataRoot = null;
+            try { Directory.Delete(_dir, true); } catch { }
+        }
+
         [Fact]
         public void AllPublicMethods_NoThrow()
         {

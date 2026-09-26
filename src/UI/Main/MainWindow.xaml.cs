@@ -141,7 +141,7 @@ namespace ShoreHue.UI.Main
                         }
                     }
                 }
-                catch { }
+                catch { /* 尽力而为：启动动作没跑成也不该挡住窗口起来（动作本身另有日志） */ }
 
                 Closed += (s, e) => OnWindowClosed();
 
@@ -169,7 +169,7 @@ namespace ShoreHue.UI.Main
                 MainPanel.Background = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(0x2D, 0x2D, 0x2D));
             }
-            catch { }
+            catch { /* 只影响面板背景色（内容照常显示） */ }
         }
 
         private bool InitializeCoreServices()
@@ -232,13 +232,13 @@ namespace ShoreHue.UI.Main
                 InitializeContent();
 
                 _edgeController.RegionChanged += OnRegionChanged;
+                // ★ 任务栏分组弹层展开期间：面板不能把"鼠标移到弹层上"当成离开（弹层是独立窗口）
+                ShoreHue.UI.Panels.TaskbarView.GroupOverlayVisibilityChanged += keep => _visibilityController.SetTransientKeepVisible(keep);
                 // ★ 切换触发（内容待加载）：立即进入"图标中置 + 内容静默"，移动期间不加载内容
                 _edgeController.SwitchStarted += (_, _) => EnterCenteredState();
 
                 // ★ AI 面板内的“打开设置”按钮
                 ShoreHue.UI.AI.AiChatView.OpenSettingsRequested += OpenSettings;
-                // ★ 划词翻译 小组件内的“打开设置”按钮
-                ShoreHue.UI.Widgets.TextAi.TextAiWidget.OpenSettingsRequested += OpenSettings;
 
                 // ★ 划词翻译 热键注册（SourceInitialized 时服务尚未初始化，这里补一次）
                 ReapplyTextAiHotkey();
@@ -287,13 +287,60 @@ namespace ShoreHue.UI.Main
                 {
                     ShoreHue.UI.Seabed.BuiltinTemplateSeeder.Seed();
                 }
-                catch { }
+                catch { /* 双保险：Seed 内部已自行 try + Error 日志（见 BuiltinTemplateSeeder.Seed），这里只为不打断扩展初始化 */ }
+                // ★ Seeder 可能刚升级了面板/小组件模板文件：让插件商店下次访问重新扫描。
+                //   否则本轮仍会用升级前的缓存内容 —— 表现为「改了仓库模板要启动两次才生效」。
+                ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.InvalidateCache();
                 // ★ 监听海床文件夹（seabed/）：用户在系统文件夹增删小组件时自动同步
                 try
                 {
                     ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.StartWatching();
                 }
-                catch { }
+                catch { /* 双保险：StartWatching 内部已自行 try + Warning 日志，失败只影响"文件夹增删自动刷新" */ }
+
+                // ★ 后台预热编译引用（纯 I/O + Roslyn 数据，不碰 WPF）：面板内容构建是同步跑在 UI 线程上的，
+                //   第一次编译要现建约 200 个程序集的元数据引用 —— 实测首次激活小组件面板整体 1639ms，
+                //   动画得等它做完才起帧。提前预热后这段不在动画路径上。
+                try
+                {
+                    ShoreHue.UI.Widgets.Dynamic.WidgetCompiler.PrewarmAsync();
+                }
+                catch (Exception ex)
+                {
+                    // 预热只是"让首次编译快一点"，失败不影响功能，但不能静默
+                    LogManager.Warning($"[编译] 启动引用预热调用失败（首次编译会慢一些）：{ex.Message}");
+                }
+
+                // ★ 后台预热内置件的编译产物（只编译落盘、**不实例化**）：内置件「文件优先」是在面板显示时
+                //   同步跑在 UI 线程上的，真机实测 5 件 = 3310ms（1.7s 冷启动 + 5×350~500ms），
+                //   面板要 3.3 秒后才开始显示。这里在 UI 线程先把"要编译哪几件"读出来（读商店/设置留在
+                //   UI 线程），再把纯 CPU 的编译丢到后台 → 首次唤出面板直接命中落盘缓存（3370ms → 约 65ms）。
+                //   ★ 故意不按启用状态过滤：id → 标签 Key 是另一套口径（"web" → "Web"），映射写错就会
+                //     **静默变成空操作**（编了另一份、用时照样现编）；而多编一个禁用组件的代价只是后台
+                //     几百毫秒，且 ApplyBuiltinFileOverrides 本来就会跳过未启用的标签，功能不受影响。
+                try
+                {
+                    var warmItems = ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.Installed
+                        .Where(p => p.IsBuiltin &&
+                                    ShoreHue.UI.Widgets.Dynamic.WidgetPluginStore.MigratedBuiltinIds.Contains(p.Id))
+                        .Select(p => (p.Id, p.Xaml, p.XamlCs, p.Source))
+                        .ToList();
+                    if (warmItems.Count > 0)
+                    {
+                        System.Threading.Tasks.Task.Run(() =>
+                        {
+                            var swWarm = System.Diagnostics.Stopwatch.StartNew();
+                            int ok = warmItems.Count(w => ShoreHue.UI.Widgets.Dynamic.WidgetCompiler.WarmAssembly(
+                                "builtin_" + w.Id, w.Xaml, w.XamlCs, w.Source));
+                            LogManager.Debug($"[编译] 内置件产物预热完成 {ok}/{warmItems.Count} 个，耗时 {swWarm.ElapsedMilliseconds}ms（后台，不碰 WPF）");
+                        });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // 预热只是"让首次唤出快一点"，失败不影响功能，但不能静默
+                    LogManager.Warning($"[编译] 启动内置件预热调用失败（首次唤出会慢一些）：{ex.Message}");
+                }
 
                 try
                 {
@@ -303,6 +350,19 @@ namespace ShoreHue.UI.Main
                 catch (Exception ex)
                 {
                     LogManager.Error("托盘图标初始化失败，继续运行", ex);
+                }
+
+                // ★ 安全模式：明确告诉用户"这次没加载插件"以及怎么恢复（否则用户只会觉得功能全没了）
+                if (ShoreHue.UI.Widgets.Dynamic.PluginRuntimeGuard.SafeMode)
+                {
+                    try
+                    {
+                        ShoreHue.UI.Widgets.HostCapabilities.ShowToast("ShoreHue 海岸线",
+                            $"安全模式（{ShoreHue.UI.Widgets.Dynamic.PluginRuntimeGuard.SafeModeReason}）：" +
+                            "本次未加载任何海床插件与自定义覆盖。正常退出程序再打开即可恢复。");
+                    }
+                    catch (Exception ex) { LogManager.Warning($"安全模式提示弹出失败：{ex.Message}"); }
+                    UpdateIconTooltip();
                 }
 
                 LogManager.Info("扩展功能初始化完成");
@@ -354,7 +414,7 @@ namespace ShoreHue.UI.Main
                 {
                     dpiScale = VisualTreeHelper.GetDpi(this).DpiScaleX;
                 }
-                catch { }
+                catch { /* 取不到就按 100%（下面有 <=0/NaN 兜底） */ }
                 if (dpiScale <= 0 || double.IsNaN(dpiScale) || double.IsInfinity(dpiScale))
                 {
                     dpiScale = 1.0;
@@ -477,13 +537,19 @@ namespace ShoreHue.UI.Main
                         cursorNow = new System.Drawing.Point(hx, hy);
                         _mouseHook.ConsumeEvent();
                     }
-                    else if (_mouseHook != null && _mouseHook.IsActive)
+                    else if (_mouseHook != null && _mouseHook.IsActive && _mouseHook.HasEverReported)
                     {
-                        // 钩子激活但无事件 = 鼠标静止：直接走静止分支（不轮询 Cursor）
+                        // 钩子激活、且已经证明能收到事件、当前无事件 = 鼠标静止：直接走静止分支（不轮询 Cursor）
                         goto HookIdle;
                     }
                     else
                     {
+                        // ★ 钩子未激活，或"已激活但一个鼠标事件都还没派发过"（刚启动、用户还没动鼠标）
+                        //   → 必须读一次真实光标位置。
+                        //   ★★ 原实现这种情况下走 HookIdle 用 _mouseHook.LastPosition，而它此刻还是初始值 (0,0)：
+                        //      等于告诉边缘检测"鼠标在屏幕左上角 (0,0)"，于是**启动后左上角面板自己弹出来**
+                        //      （日志实测：4/6 次启动在"主窗口初始化完成"后 0.5–1.1s 出现 LoadContent ... key=TopLeft，
+                        //       期间没有任何用户操作）。鼠标一动就会收到真实事件，所以现象是"常常"而不是"每次"。
                         cursorNow = System.Windows.Forms.Cursor.Position;
                     }
                     // ★ 用 long 计算差值：_lastTickMouseX/Y 初始为 int.MinValue，
@@ -744,7 +810,7 @@ namespace ShoreHue.UI.Main
                 // ★ 非模态显示：引导期间面板功能保持可用（边缘触发等不受影响）
                 onboarding.Show();
             }
-            catch { }
+            catch { /* 引导只是首次运行的说明页，打不开不影响任何功能 */ }
         }
 
         /// <summary>启动后异步检查 GitHub 更新；发现新版本时通知坞弹出更新通知。</summary>
@@ -763,7 +829,7 @@ namespace ShoreHue.UI.Main
                     ShoreHue.Infrastructure.WinApi.ToastMonitor.NotifyUpdateAvailable(info);
                 }
             }
-            catch { }
+            catch { /* 尽力而为：更新提示没弹出来不影响使用（设置页里仍可手动检查更新） */ }
         }
 
         private bool IsRegionEnabledBySettings(EdgeRegion region)
@@ -923,7 +989,7 @@ namespace ShoreHue.UI.Main
                         this, _settingsService?.UiFontScale ?? 1.0);
                 }), System.Windows.Threading.DispatcherPriority.Loaded);
             }
-            catch { }
+            catch { /* 字号只是观感（FontScaleManager 内部逐元素 try，个别失败不影响整体） */ }
         }
 
         // ============================================================
@@ -1138,7 +1204,7 @@ namespace ShoreHue.UI.Main
                     }
                 }
             }
-            catch { }
+            catch { /* 尽力而为：补内容失败时面板是空的，下次显示会重新加载 */ }
         }
 
         private void OnPanelHidden()
@@ -1167,7 +1233,7 @@ namespace ShoreHue.UI.Main
             {
                 UnregisterGlobalHotkey(new System.Windows.Interop.WindowInteropHelper(this).Handle);
             }
-            catch { }
+            catch { /* 关闭中：注销失败无害（进程退出时热键自动回收） */ }
 
             LogManager.Info("主窗口关闭");
             _edgeTimer?.Stop();
@@ -1176,17 +1242,16 @@ namespace ShoreHue.UI.Main
             _mouseHook = null;
             ShoreHue.Infrastructure.WinApi.ToastMonitor.Stop();
             ShoreHue.Infrastructure.WinApi.RecentAppTracker.Stop();
-            try { _clipboardService.StopListening(); } catch { }
-
-            try { _dragController?.Detach(); } catch { }
-            try { (_shapeAnimator as IDisposable)?.Dispose(); } catch { }
-
+            // 以下四处都是**退出清理**：失败不影响已完成的退出流程（进程随后就结束），故刻意不记日志
+            try { _clipboardService.StopListening(); } catch { /* 退出清理，失败无害 */ }
+            try { _dragController?.Detach(); } catch { /* 退出清理，失败无害 */ }
+            try { (_shapeAnimator as IDisposable)?.Dispose(); } catch { /* 退出清理，失败无害 */ }
             try
             {
                 ServiceManager.Instance.ShutdownAll();
                 ServiceManager.Instance.Dispose();
             }
-            catch { }
+            catch { /* 退出清理，失败无害（不阻塞退出） */ }
 
             LogManager.Shutdown();
         }

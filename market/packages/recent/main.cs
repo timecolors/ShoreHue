@@ -46,11 +46,14 @@ namespace ShoreHue.Builtin
 
         public RecentItemsPanel()
         {
+            _btnFiles.Style = TryFindResource("FlatButton") as Style;
+            _btnApps.Style = TryFindResource("FlatButton") as Style;
+            _btnWebs.Style = TryFindResource("FlatButton") as Style;
             _btnFiles.Click += (_, _) => ShowTab(Kind.File);
             _btnApps.Click += (_, _) => ShowTab(Kind.App);
             _btnWebs.Click += (_, _) => ShowTab(Kind.Web);
 
-            var refresh = new Button { Content = "⟳", FontSize = 12, Width = 30, Height = 26, ToolTip = "刷新" };
+            var refresh = new Button { Content = "⟳", FontSize = 12, Width = 30, Height = 26, ToolTip = "刷新", Style = TryFindResource("IconButton") as Style };
             refresh.Click += (_, _) => RefreshAll();
 
             var title = new TextBlock { Text = "最近使用", FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(238, 238, 238)) };
@@ -70,7 +73,7 @@ namespace ShoreHue.Builtin
             tabs.Children.Add(_btnWebs);
 
             var input = new TextBox { FontSize = 11, VerticalContentAlignment = VerticalAlignment.Center, ToolTip = "输入网址，回车收藏" };
-            var addBtn = new Button { Content = "收藏", FontSize = 11, Margin = new Thickness(6, 0, 0, 0) };
+            var addBtn = new Button { Content = "收藏", FontSize = 11, Margin = new Thickness(6, 0, 0, 0), Style = TryFindResource("FlatButton") as Style };
             addBtn.Click += (_, _) => AddWeb(input.Text);
             input.KeyDown += (_, e) => { if (e.Key == Key.Enter) { AddWeb(input.Text); e.Handled = true; } };
             var webGrid = new Grid();
@@ -97,7 +100,7 @@ namespace ShoreHue.Builtin
         {
             string url = (input ?? "").Trim();
             if (url.Length == 0) return;
-            if (WebFavoriteManager.AddFavorite(url)) RefreshAll();
+            if (ShoreHue.UI.Widgets.HostCapabilities.AddWebFavorite(url)) RefreshAll();
         }
 
         public void RefreshAll()
@@ -113,17 +116,11 @@ namespace ShoreHue.Builtin
             _files.Clear();
             try
             {
-                string recentDir = Environment.GetFolderPath(Environment.SpecialFolder.Recent);
-                if (string.IsNullOrEmpty(recentDir) || !Directory.Exists(recentDir)) return;
-                foreach (var entry in new DirectoryInfo(recentDir).GetFiles("*.lnk").OrderByDescending(x => x.LastWriteTime).Take(30))
+                // ★ 安全 v2：最近文件由宿主窄接口提供（不再直接枚举 Recent 目录 / 解析 .lnk）
+                foreach (var it in ShoreHue.UI.Widgets.HostCapabilities.GetRecentItems(40))
                 {
-                    try
-                    {
-                        string target = ShortcutLinkResolver.Resolve(entry.FullName);
-                        if (string.IsNullOrEmpty(target) || !File.Exists(target)) continue;
-                        _files.Add(new Entry { Kind = Kind.File, Name = Path.GetFileName(target), Detail = target, Path = target, Icon = GetFileIcon(target) });
-                    }
-                    catch { }
+                    if (it.Kind != "File") continue;
+                    _files.Add(new Entry { Kind = Kind.File, Name = it.Name, Detail = it.Target, Path = it.Target, Icon = GetFileIcon(it.Target) });
                 }
             }
             catch { }
@@ -134,20 +131,17 @@ namespace ShoreHue.Builtin
             _apps.Clear();
             try
             {
-                var recent = RecentAppTracker.GetRecentApps(30);
-                if (recent.Count == 0) return;
-                var exeToHandle = new Dictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
-                WindowListProvider.EnumerateWindowExeHandles(exeToHandle);
-                foreach (var app in recent)
+                // ★ 安全 v2：最近应用由宿主窄接口提供（不再读注册表 UserAssist / 枚举窗口）
+                foreach (var it in ShoreHue.UI.Widgets.HostCapabilities.GetRecentItems(40))
                 {
+                    if (it.Kind != "App") continue;
                     _apps.Add(new Entry
                     {
                         Kind = Kind.App,
-                        Name = app.Name,
-                        Detail = app.Path,
-                        Path = app.Path,
-                        Handle = exeToHandle.TryGetValue(app.Path, out var h) ? h : (IntPtr?)null,
-                        Icon = GetFileIcon(app.Path)
+                        Name = string.IsNullOrEmpty(it.Name) ? it.Target : it.Name,
+                        Detail = it.Target,
+                        Path = it.Target,
+                        Icon = GetFileIcon(it.Target)
                     });
                 }
             }
@@ -178,16 +172,17 @@ namespace ShoreHue.Builtin
             _webs.Clear();
             try
             {
-                var entries = await Task.Run(() => WebFavoriteManager.GetCombined(40));
+                // ★ 安全 v2：网页收藏由宿主窄接口提供（不再读浏览器 History）
+                var entries = await Task.Run(() => ShoreHue.UI.Widgets.HostCapabilities.GetWebFavorites(40));
                 foreach (var entry in entries)
                 {
                     _webs.Add(new Entry
                     {
                         Kind = Kind.Web,
-                        Name = string.IsNullOrEmpty(entry.Title) ? WebFavoriteManager.GetDomain(entry.Url) : entry.Title,
-                        Detail = entry.Url,
-                        Path = entry.Url,
-                        IsFavorite = entry.IsFavorite
+                        Name = entry.Name,
+                        Detail = entry.Target,
+                        Path = entry.Target,
+                        IsFavorite = true
                     });
                 }
                 if (_tab == Kind.Web) ShowTab(_tab);
@@ -211,8 +206,10 @@ namespace ShoreHue.Builtin
 
         private Border BuildRow(Entry item)
         {
-            var name = new TextBlock { Text = item.Name, FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(238, 238, 238)), TextTrimming = TextTrimming.CharacterEllipsis };
-            var detail = new TextBlock { Text = item.Detail, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(119, 119, 119)), TextTrimming = TextTrimming.CharacterEllipsis };
+            // ★ 去掉省略号改换行（应用名/详情常是长路径，能看全）；高度取行高整数倍（4 行），
+            //   超出时裁剪落在行间而不是切半个字。与内置面板 RecentItemsView 同口径。
+            var name = new TextBlock { Text = item.Name, FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(238, 238, 238)), TextWrapping = TextWrapping.Wrap, LineHeight = 16, MaxHeight = 64 };
+            var detail = new TextBlock { Text = item.Detail, FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(119, 119, 119)), TextWrapping = TextWrapping.Wrap, LineHeight = 14, MaxHeight = 56 };
             var text = new StackPanel();
             text.Children.Add(name);
             text.Children.Add(detail);
@@ -245,7 +242,7 @@ namespace ShoreHue.Builtin
                     Margin = new Thickness(6, 0, 0, 0),
                     VerticalAlignment = VerticalAlignment.Center
                 };
-                remove.Click += (_, _) => { if (item.Kind == Kind.Web) { WebFavoriteManager.RemoveFavorite(item.Path); RefreshAll(); } };
+                remove.Click += (_, _) => { if (item.Kind == Kind.Web) { ShoreHue.UI.Widgets.HostCapabilities.RemoveWebFavorite(item.Path); RefreshAll(); } };
                 Grid.SetColumn(remove, 1);
                 grid.Children.Add(remove);
             }
@@ -261,18 +258,15 @@ namespace ShoreHue.Builtin
             {
                 switch (item.Kind)
                 {
-                    case Kind.App when item.Handle.HasValue:
-                        WindowAction.SwitchTo(item.Handle.Value);
-                        RecentAppTracker.RecordLaunch(item.Path);
-                        break;
+                    // ★ 安全 v2：打开动作走宿主窄接口（白名单协议 / 最近使用清单内的路径）
                     case Kind.App:
                     case Kind.File:
-                        Process.Start(new ProcessStartInfo(item.Path) { UseShellExecute = true });
-                        RecentAppTracker.RecordLaunch(item.Path);
+                        ShoreHue.UI.Widgets.HostCapabilities.OpenExternally(item.Path);
+                        ShoreHue.UI.Widgets.HostCapabilities.RecordLaunch(item.Path);
                         break;
                     default:
-                        Process.Start(new ProcessStartInfo(item.Path) { UseShellExecute = true });
-                        WebFavoriteManager.RecordOpen(item.Path, item.Name);
+                        ShoreHue.UI.Widgets.HostCapabilities.OpenExternally(item.Path);
+                        ShoreHue.UI.Widgets.HostCapabilities.RecordWebOpen(item.Path, item.Name);
                         break;
                 }
             }

@@ -67,7 +67,6 @@ namespace ShoreHue.UI.Main
 
 
         private bool _passthroughActive;
-        private bool _passthroughWasVisible;   // 穿透前面板是否可见（松开后恢复）
         // ★ 数字环呼出后短时抑制穿透：Ctrl 兼作穿透修饰键时，按住 Ctrl 按数字键
         //   会被穿透逻辑误判为"点击穿透"而把面板藏掉（T+30ms tick 即隐藏）。
         private long _passthroughSuppressUntilTick;
@@ -108,13 +107,13 @@ namespace ShoreHue.UI.Main
                 return mx >= Left && mx <= Left + Width &&
                        my >= Top && my <= Top + Height;
             }
-            catch { return false; }
+            catch { /* 算不出来就当"不在窗口内"（最坏是让开穿透多做一次判断） */ return false; }
         }
 
         /// <summary>
         /// 按住穿透修饰键 → 窗口加 WS_EX_TRANSPARENT（鼠标命中测试跳过本窗口，
         /// 点击穿透到面板覆盖区域下方的屏幕内容）；松开 → 移除。
-        /// ★ 触发条件（2026-09-02 修复 Ctrl+数字环冲突）：
+        /// ★ 触发条件（须避开 Ctrl+数字环热键冲突）：
         ///   仅在「鼠标位于面板上」时才进入穿透——穿透的用途是按住修饰键点击面板
         ///   穿透到下层，鼠标不在面板上时没有可穿透的点击目标。否则按住 Ctrl 按数字
         ///   环热键（修饰键同为 Ctrl）会在 30ms tick 内把面板藏掉，热键形同失效。
@@ -150,7 +149,6 @@ namespace ShoreHue.UI.Main
                 //   隐藏窗口是唯一对所有模式都可靠的"让开"方式。
                 if (down)
                 {
-                    _passthroughWasVisible = _visibilityController.IsVisible;
                     _visibilityController.SuppressOpacityReset = true;   // 防 ShowAt 重置
                     this.Visibility = Visibility.Hidden;                 // 窗口立即隐藏
                 }
@@ -161,7 +159,7 @@ namespace ShoreHue.UI.Main
                     MainPanel.Opacity = _visibilityController.Opacity;   // 内容透明度还原
                 }
             }
-            catch { }
+            catch { /* 只影响"让开后恢复显示"这一步；不抛是为了不打断调用方（下次呼出会重新应用可见性） */ }
         }
 
         private IntPtr _hwnd = IntPtr.Zero;
@@ -219,13 +217,13 @@ namespace ShoreHue.UI.Main
             {
                 return VisualTreeHelper.GetDpi(this).DpiScaleX;
             }
-            catch { }
+            catch { /* 拿不到就试下面第二种算法，最后兜底 1.0 */ }
             try
             {
                 double scale = PresentationSource.FromVisual(this)?.CompositionTarget.TransformToDevice.M11 ?? 0;
                 if (scale > 0) return scale;
             }
-            catch { }
+            catch { /* 两种算法都拿不到 → 按 100% 处理（见下一行） */ }
             return 1.0;
         }
 
@@ -238,7 +236,7 @@ namespace ShoreHue.UI.Main
                 RegisterHotKey(hwnd, HotkeyId, MOD_CONTROL | MOD_ALT, VK_B);
                 ApplyRegionHotkeys();   // ★ Ctrl+数字环：键盘呼出 16 区域面板（默认关，按设置修饰键）
             }
-            catch { }
+            catch { /* 注册不上通常是 Ctrl+Alt+B 被别的程序占用；鼠标边缘呼出不受影响 */ }
             // 服务可能尚未初始化（SourceInitialized 早于 InitializeCoreServices），稍后再补注册
             ReapplyTextAiHotkey();
         }
@@ -254,7 +252,7 @@ namespace ShoreHue.UI.Main
                     UnregisterRegionHotkeys(hwnd);
                 }
             }
-            catch { }
+            catch { /* 注销失败无害：窗口销毁时系统会一并回收热键 */ }
         }
 
         /// <summary>
@@ -328,7 +326,7 @@ namespace ShoreHue.UI.Main
                     return rect.Bottom - rect.Top;
                 }
             }
-            catch { }
+            catch { /* 取不到任务栏高度就用常见值 40（只影响底边贴边的判定容差） */ }
             return 40;
         }
 
@@ -382,7 +380,7 @@ namespace ShoreHue.UI.Main
                     return workArea.Bottom / dpiScale;
                 }
             }
-            catch { }
+            catch { /* 算不出来就用 WPF 的工作区底边兜底（见下一行；底部贴边的真值另有实测结论，见 HANDOFF 坑 1） */ }
 
             return SystemParameters.WorkArea.Bottom;
         }

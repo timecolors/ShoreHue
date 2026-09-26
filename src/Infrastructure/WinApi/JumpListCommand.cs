@@ -100,7 +100,11 @@ namespace ShoreHue.Infrastructure.WinApi
             {
                 System.IO.File.WriteAllText(MemFile, string.Join("\n", actions));
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 跨进程转发动作失败 → 已有实例收不到这次 Jump List 动作（用户点了没反应）
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[跳转列表] 写入待执行动作失败（动作会丢失）：{ex.Message}");
+            }
         }
 
         private static List<string> ReadActions()
@@ -117,7 +121,11 @@ namespace ShoreHue.Infrastructure.WinApi
                     }
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 读不到 = 启动时的 Jump List 动作丢失（返回空列表继续启动）
+                ShoreHue.Core.Infrastructure.Logging.LogManager.Warning($"[跳转列表] 读取待执行动作失败（本次动作丢失）：{ex.Message}");
+            }
             return result;
         }
     }

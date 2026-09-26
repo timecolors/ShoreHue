@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Win32;
+using ShoreHue.Core.Infrastructure.Logging;
 using ShoreHue.Infrastructure.Utils;
 
 namespace ShoreHue.Infrastructure.WinApi
@@ -72,6 +73,12 @@ namespace ShoreHue.Infrastructure.WinApi
 
         public static void RemoveFavorite(string url)
         {
+            // ★ 必须先 EnsureLoaded：`_favorites` 在首次触碰本类时是**空列表**，
+            //   此处直接 SaveFavorites() 会把用户的收藏文件覆盖成 `[]`（真实数据丢失）。
+            //   本方法可以从插件能力 HostCapabilities.RemoveWebFavorite 走到，
+            //   也就是"外来代码首次触碰本类"是可达路径。
+            //   同文件里 AddFavorite / IsFavorite / RecordOpen 都调了 EnsureLoaded，只有这里漏了。
+            EnsureLoaded();
             lock (_lock)
             {
                 _favorites.RemoveAll(f => f.Url.Equals(url, StringComparison.OrdinalIgnoreCase));
@@ -118,22 +125,30 @@ namespace ShoreHue.Infrastructure.WinApi
             EnsureLoaded();
 
             var all = new Dictionary<string, WebEntry>(StringComparer.OrdinalIgnoreCase);
-            foreach (var f in _favorites)
+            // ★ 与 AddFavorite/RecordOpen 共用同一把锁：本方法会被 RecentItemsView 用 Task.Run 调到后台线程，
+            //   而 RecordOpen 可能在 UI 线程同时改这两个表 —— 以前这里裸遍历 + 改字段，
+            //   既可能读到半更新的集合，也会和写侧互相踩。
+            //   锁内只做内存合并；浏览器历史/输入记录那些 I/O 放到锁外。
+            lock (_lock)
             {
-                f.IsFavorite = true;
-                all[f.Url] = f;
-            }
-            foreach (var r in _recentOpens)
-            {
-                if (all.TryGetValue(r.Url, out var existing))
+                foreach (var f in _favorites)
                 {
-                    if (r.LastVisit > existing.LastVisit) existing.LastVisit = r.LastVisit;
+                    f.IsFavorite = true;
+                    all[f.Url] = f;
                 }
-                else
+                foreach (var r in _recentOpens)
                 {
-                    all[r.Url] = r;
+                    if (all.TryGetValue(r.Url, out var existing))
+                    {
+                        if (r.LastVisit > existing.LastVisit) existing.LastVisit = r.LastVisit;
+                    }
+                    else
+                    {
+                        all[r.Url] = r;
+                    }
                 }
             }
+
             foreach (var b in GetRecentFromBrowsers(25))
             {
                 if (all.TryGetValue(b.Url, out var existing))
@@ -209,9 +224,14 @@ namespace ShoreHue.Infrastructure.WinApi
                         result.Add(new WebEntry { Url = url, Title = title, LastVisit = time });
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    // 浏览器历史读不出来 → "最近网页"这一来源为空（用户可见的功能缺失）
+                    LogManager.Warning($"[网页收藏] 读取浏览器历史失败（该来源为空）：{ex.Message}");
+                }
                 finally
                 {
+                    // 尽力而为：临时副本删不掉会留在 %TEMP%，无害（清理失败不再套一层日志）
                     try { if (tempCopy != null && File.Exists(tempCopy)) File.Delete(tempCopy); }
                     catch { }
                 }
@@ -239,7 +259,11 @@ namespace ShoreHue.Infrastructure.WinApi
                     result.Add(new WebEntry { Url = url!, Title = GetDomain(url!), LastVisit = DateTime.MinValue });
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 尽力而为：这只是众多来源之一（IE 输入过的地址），失败时少几条而已
+                LogManager.Debug($"[网页收藏] 读取输入过的地址失败（少一个来源）：{ex.Message}");
+            }
             return result;
         }
 
@@ -270,7 +294,12 @@ namespace ShoreHue.Infrastructure.WinApi
                     ? uri.Host[4..]
                     : uri.Host;
             }
-            catch { return url; }
+            catch (Exception ex)
+            {
+                // 尽力而为：URL 解析不出主机名就直接显示原串
+                LogManager.Debug($"[网页收藏] 解析域名失败（显示原始地址）：{ex.Message}");
+                return url;
+            }
         }
 
         // ================= 持久化 =================
@@ -283,7 +312,12 @@ namespace ShoreHue.Infrastructure.WinApi
                 var list = JsonSerializer.Deserialize<List<WebEntry>>(File.ReadAllText(FavoritesPath));
                 _favorites = list ?? new List<WebEntry>();
             }
-            catch { _favorites = new List<WebEntry>(); }
+            catch (Exception ex)
+            {
+                // 读不出收藏 → 按空处理（界面显示"没有收藏"）；文件仍在，只是本次读失败
+                LogManager.Warning($"[网页收藏] 读取收藏失败（按空处理）：{ex.Message}");
+                _favorites = new List<WebEntry>();
+            }
         }
 
         private static void LoadRecentOpens()
@@ -294,7 +328,11 @@ namespace ShoreHue.Infrastructure.WinApi
                 var list = JsonSerializer.Deserialize<List<WebEntry>>(File.ReadAllText(RecentPath));
                 _recentOpens = list ?? new List<WebEntry>();
             }
-            catch { _recentOpens = new List<WebEntry>(); }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[网页收藏] 读取最近打开失败（按空处理）：{ex.Message}");
+                _recentOpens = new List<WebEntry>();
+            }
         }
 
         private static void SaveFavorites()
@@ -304,7 +342,11 @@ namespace ShoreHue.Infrastructure.WinApi
                 Directory.CreateDirectory(AppPaths.DataRoot);
                 File.WriteAllText(FavoritesPath, JsonSerializer.Serialize(_favorites));
             }
-            catch { }
+            catch (Exception ex)
+            {
+                // 收藏没落盘 = 重启后丢失（数据持久化失败）
+                LogManager.Warning($"[网页收藏] 保存收藏失败（重启后会丢失）：{ex.Message}");
+            }
         }
 
         private static void SaveRecentOpens()
@@ -314,7 +356,10 @@ namespace ShoreHue.Infrastructure.WinApi
                 Directory.CreateDirectory(AppPaths.DataRoot);
                 File.WriteAllText(RecentPath, JsonSerializer.Serialize(_recentOpens));
             }
-            catch { }
+            catch (Exception ex)
+            {
+                LogManager.Warning($"[网页收藏] 保存最近打开失败（重启后会丢失）：{ex.Message}");
+            }
         }
     }
 }

@@ -1,5 +1,5 @@
-﻿param(
-    [string]$Version = "1.0.1.0",
+param(
+    [string]$Version = "1.1.1.0",
     [string]$PublisherCN = "CN=FAFCE538-611A-4FA6-9046-8E37F31B8034",
     [string]$PublishDir = (Join-Path $PSScriptRoot "..\bin\publish\win-x64"),
     [string]$OutDir = (Join-Path $PSScriptRoot "Output")

@@ -5,6 +5,7 @@
   "category": "面板功能",
   "version": "1.0.0",
   "author": "timecolors",
+  "publisherId": 176211220,
   "description": "ShoreHue 内置最近使用：一键打开最近使用的程序、文件与网页。",
   "baseType": "Panel",
   "parentKey": "panel-features",

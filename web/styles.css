@@ -1,0 +1,1859 @@
+/* ============================================================
+   ShoreHue 官网 · 样式
+   视觉方向：色块 + 毛玻璃（Glassmorphism）
+   配色沿用应用图标的海蓝 → 暖沙渐变，保持品牌一致
+   ============================================================ */
+
+:root{
+  --sea-deep:#04121e;
+  --sea-mid:#0a2a42;
+  --brand-blue:#4cc2ff;
+  --brand-teal:#8ce0d0;
+  --brand-sand:#f0dcb8;
+  --text:#f2f7fb;
+  --text-dim:rgba(242,247,251,.74);
+  --text-faint:rgba(242,247,251,.5);
+  --ink:#ffffff;
+  --accent:#4cc2ff;
+  --accent-2:#8ce0d0;
+
+  /* ---------- 排版模数 ----------
+     字号收敛成稀疏阶梯（不用 13.5/13.6 这种随手值），
+     间距统一走 8px 模数。 */
+  --sp-1:8px;
+  --sp-2:16px;
+  --sp-3:24px;
+  --sp-4:32px;
+  --sp-5:48px;
+  --sp-6:64px;
+  --sp-7:96px;
+
+  --fs-xs:13px;
+  --fs-sm:14px;
+  --fs-base:16px;
+  --fs-md:18px;
+  --fs-lg:20px;
+  --fs-xl:clamp(28px,3.4vw,36px);
+  --fs-hero:clamp(44px,7vw,74px);
+
+  --lh-tight:1.5;
+  --lh-snug:1.5;
+  --lh-body:1.6;
+
+  --maxw:1200px;
+  --gutter:clamp(20px,5vw,64px);
+
+  /* 毛玻璃统一参数 */
+  --glass-bg:rgba(6,26,44,.42);
+  --glass-border:rgba(255,255,255,.16);
+  --glass-blur:blur(22px) saturate(1.6);
+}
+
+*{box-sizing:border-box}
+
+html{
+  /* 页面滚动驱动潮汐；滚动条裸露会破坏画面 */
+  scrollbar-width:none;
+  scroll-behavior:smooth;
+}
+html::-webkit-scrollbar{width:0;height:0;}
+
+body{
+  margin:0;
+  min-height:100%;
+  background:var(--sea-deep);
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Display","Segoe UI",
+              "PingFang SC","Hiragino Sans GB","Microsoft YaHei UI","Microsoft YaHei",
+              system-ui,sans-serif;
+  font-size:16px;
+  line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+  overflow-x:hidden;
+  overscroll-behavior-y:none;
+}
+
+/* ============================================================
+   背景：色块 + 沙滩 + 程序化水面
+   ============================================================ */
+#bg{
+  position:fixed;
+  inset:0;
+  z-index:0;
+  overflow:hidden;
+  /* 俯视，只有沙滩与海水 —— 没有天空。
+     铁律：背景【整块都是沙滩】，蓝色只属于 .sea 那一层，
+     这样海水完全褪去后露出的只有沙。 */
+  background:
+    radial-gradient(150% 42% at 88% 0%,  #fdf7ec 0%, rgba(253,247,236,0) 70%),
+    linear-gradient(180deg,
+      #f8f1e4 0%,
+      #f3e8d4 16%,
+      #ebdcc2 32%,
+      #e0ccae 48%,
+      #d3bb9b 64%,
+      #c4a988 80%,
+      #b39674 92%,
+      #a68a68 100%);
+}
+
+/* 沙滩光照：光源在右上角，一个主光斑 + 一条斜向明暗。
+   只用一处光源 —— 两个对称光斑会让中间发暗，看着像"中间深两边浅"。 */
+#bg::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:
+    radial-gradient(78% 58% at 88% 2%, rgba(255,254,246,.52), rgba(255,254,246,0) 64%),
+    linear-gradient(206deg,
+      rgba(255,250,236,.14) 0%,
+      rgba(255,250,236,.03) 36%,
+      rgba(104,80,50,.05)   70%,
+      rgba(96,72,44,.11)    100%),
+    linear-gradient(180deg,
+      rgba(255,252,242,0)    50%,
+      rgba(255,252,242,.07)  68%,
+      rgba(255,252,242,.13)  84%,
+      rgba(255,252,242,.06)  100%);
+}
+
+/* 柔光色块：左右对称，只当微妙纹理 */
+.blob{
+  position:absolute;
+  border-radius:50%;
+  filter:blur(90px);
+  will-change:transform;
+  pointer-events:none;
+}
+.blob-a{
+  width:58vmax;height:58vmax;
+  left:-14vmax;top:-20vmax;
+  background:radial-gradient(circle at 42% 42%, rgba(253,238,205,.34), rgba(253,238,205,0) 68%);
+}
+.blob-b{
+  width:58vmax;height:58vmax;
+  right:-14vmax;top:-20vmax;
+  background:radial-gradient(circle at 50% 50%, rgba(246,222,178,.34), rgba(246,222,178,0) 66%);
+}
+.blob-c{
+  width:72vmax;height:44vmax;
+  left:50%;top:42%;
+  margin-left:-36vmax;
+  background:radial-gradient(circle at 50% 50%, rgba(226,186,124,.30), rgba(226,186,124,0) 66%);
+}
+.blob-d{
+  width:64vmax;height:40vmax;
+  left:50%;bottom:8vmax;
+  margin-left:-32vmax;
+  background:radial-gradient(circle at 50% 50%, rgba(206,170,118,.26), rgba(206,170,118,0) 68%);
+}
+
+/* 右上角阳光（screen 混合） */
+.sunlight{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:
+    radial-gradient(62% 44% at 86% 4%, rgba(255,244,218,.46) 0%, rgba(255,244,218,0) 62%),
+    radial-gradient(36% 28% at 90% 1%, rgba(255,252,240,.38) 0%, rgba(255,252,240,0) 70%);
+  mix-blend-mode:screen;
+}
+
+/* 细颗粒：消除渐变色带 */
+.grain{
+  position:absolute;
+  inset:0;
+  opacity:.035;
+  pointer-events:none;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/></filter><rect width='140' height='140' filter='url(%23n)'/></svg>");
+}
+
+/* 水面：Canvas 逐帧绘制，铺满视口 */
+.sea{
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+}
+#seaCanvas{
+  display:block;
+  width:100%;
+  height:100%;
+}
+
+/* ============================================================
+   启动遮罩
+   ============================================================ */
+#boot{
+  position:fixed;inset:0;z-index:100;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--sea-deep);
+  transition:opacity .6s ease,visibility .6s ease;
+}
+#boot.hidden{opacity:0;visibility:hidden;pointer-events:none}
+.boot-inner{text-align:center}
+.boot-ring{
+  width:38px;height:38px;margin:0 auto 14px;
+  border:2px solid rgba(244,251,255,.16);
+  border-top-color:var(--accent);
+  border-radius:50%;
+  animation:spin .9s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.boot-text{font-size:13px;letter-spacing:.3em;color:rgba(244,251,255,.6)}
+
+/* 旧结构的滚动空间占位 */
+#scroll-space{
+  position:relative;
+  z-index:-1;
+  height:320vh;
+  pointer-events:none;
+}
+
+/* ============================================================
+   顶栏
+   ============================================================ */
+.topbar{
+  position:fixed;
+  top:0;left:0;right:0;
+  z-index:20;
+  padding:16px clamp(16px,4vw,44px);
+  pointer-events:none;
+}
+/* 定位参照：.pill-full / .pill 都是绝对定位，必须有这个 relative 父级。
+   （这块被我的脚本误删过，删掉后胶囊会撑满整屏。） */
+.topbar-inner{
+  position:relative;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:24px;
+  padding:5px;
+  border-radius:999px;
+}
+/* 顶栏合体（最终方案）。
+   ------------------------------------------------------------
+   查 MDN 后的两条硬约束：
+   1) backdrop-filter 会创建 backdrop root，父子同时使用 → 子元素模糊错对象；
+   2) 两个独立的 backdrop-filter 相邻拼接【永远有缝】——
+      各自都要在边界做模糊衰减，接缝必然出现亮度台阶（重叠只会变成"双层更暗"）。
+
+   所以：主胶囊只有【一块】带 backdrop-filter。
+   滚动时主胶囊从中间展开并淡入，首屏那两个小胶囊（只用半透明色、不带模糊）
+   同时淡出。小胶囊没有 backdrop-filter，因此过渡期间不存在嵌套或叠加异常。
+
+   首屏小胶囊不模糊是有意为之：顶栏背后是纯沙滩，几乎看不出差别，
+   而它换来的是"接缝彻底消失"。 */
+.pill-full{
+  position:absolute;
+  inset:0;
+  z-index:0;
+  pointer-events:none;
+  border-radius:999px;
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur);
+  -webkit-backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-border);
+  box-shadow:0 14px 40px -22px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.08);
+  opacity:0;
+  transform:scaleX(.55);
+  transition:opacity .3s ease, transform .46s cubic-bezier(.32,.72,.24,1);
+}
+.topbar.scrolled .pill-full{
+  opacity:1;
+  transform:scaleX(1);
+}
+
+/* 首屏的两个小胶囊：只有半透明色，【不带 backdrop-filter】 */
+.pill{
+  position:absolute;
+  top:5px;
+  bottom:5px;
+  z-index:0;
+  pointer-events:none;
+  border-radius:999px;
+  background:rgba(6,26,44,.42);
+  border:1px solid var(--glass-border);
+  box-shadow:0 8px 30px -18px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.08);
+  transition:opacity .3s ease;
+}
+.pill-l{ left:0;  width:var(--pill-l-w, 160px); }
+.pill-r{ right:0; width:var(--pill-r-w, 145px); }
+.topbar.scrolled .pill{
+  opacity:0;
+}
+
+/* 内容层：只有文字与图标，背景交给上面的 pill。
+   flex:0 0 auto 必须加 —— 否则会被 flex 容器压缩，
+   测出的宽度小于实际文字宽度，胶囊就包不住内容。 */
+.brand,
+.topnav{
+  position:relative;
+  z-index:1;
+  flex:0 0 auto;
+  background:transparent;
+  border-color:transparent;
+  box-shadow:none;
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+.brand{
+  display:flex;align-items:center;gap:10px;
+  text-decoration:none;color:var(--text);
+  pointer-events:auto;
+  padding:6px 14px 6px 6px;
+  border-radius:999px;
+}
+.brand img{border-radius:7px;display:block}
+.brand-name{font-weight:660;letter-spacing:.01em;font-size:15px}
+.brand-cn{font-size:12px;color:var(--text-faint);letter-spacing:.16em}
+.topnav{
+  display:flex;
+  align-items:center;
+  gap:2px;
+  pointer-events:auto;
+  padding:5px;
+  border-radius:999px;
+}
+.topnav a{
+  color:var(--text-dim);
+  text-decoration:none;
+  font-size:var(--fs-sm);
+  padding:6px 15px;
+  border-radius:999px;
+  transition:color .2s,background .2s;
+}
+.topnav a:hover{color:#fff;background:rgba(255,255,255,.12)}
+.topnav a:active{background:rgba(255,255,255,.18)}
+/* ============================================================
+   通用
+   ============================================================ */
+main{position:relative;z-index:10}
+
+.glass{
+  position:relative;
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur);
+  -webkit-backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-border);
+  border-radius:26px;
+  box-shadow:
+    0 30px 70px -40px rgba(0,0,0,.95),
+    inset 0 1px 0 rgba(255,255,255,.12);
+}
+
+.section{padding:var(--sp-7) var(--gutter)}
+.wrap{max-width:var(--maxw);margin:0 auto}
+.sec-title{
+  margin:0 0 var(--sp-1);
+  font-size:var(--fs-xl);
+  font-weight:680;
+  letter-spacing:-.015em;
+  text-shadow:0 2px 14px rgba(4,24,40,.55), 0 1px 3px rgba(4,24,40,.45);
+}
+.sec-sub{
+  margin:0 0 var(--sp-5);
+  color:rgba(242,247,251,.88);
+  font-size:15px;
+  max-width:640px;
+  text-shadow:0 2px 12px rgba(4,24,40,.6), 0 1px 2px rgba(4,24,40,.5);
+}
+
+/* ============================================================
+   首屏：大标题 + 窄正文 + 按钮
+   ============================================================ */
+.hero{
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  padding:0 var(--gutter);
+}
+.hero-head{
+  width:100%;
+  max-width:840px;
+  margin:0 auto;
+  text-align:center;
+  padding:clamp(30px,3.6vw,52px) clamp(26px,3vw,46px);
+  border-radius:28px;
+}
+.eyebrow{
+  margin:0 0 var(--sp-2);
+  text-align:center;
+  font-size:var(--fs-xs);
+  letter-spacing:.28em;
+  text-transform:uppercase;
+  color:var(--accent-2);
+  font-weight:600;
+}
+.eyebrow::before{
+  content:"";
+  display:inline-block;
+  width:26px;height:1px;
+  background:var(--accent-2);
+  vertical-align:middle;
+  margin-right:12px;
+  opacity:.7;
+}
+.title{
+  margin:0 0 var(--sp-3);
+  line-height:1.15;
+  display:flex;
+  align-items:baseline;
+  justify-content:center;
+  gap:var(--sp-2);
+  flex-wrap:wrap;
+}
+.title-en{
+  font-size:var(--fs-hero);
+  font-weight:600;
+  letter-spacing:-.035em;
+  background:linear-gradient(175deg,#ffffff 12%,#bfe6f7 62%,#8ce0d0);
+  -webkit-background-clip:text;
+  background-clip:text;
+  -webkit-text-fill-color:transparent;
+}
+.title-cn{
+  font-size:clamp(17px,2vw,22px);
+  font-weight:500;
+  color:rgba(244,251,255,.6);
+  letter-spacing:.12em;
+}
+.lede{
+  margin:var(--sp-3) auto var(--sp-4);
+  font-size:var(--fs-base);
+  color:var(--text-dim);
+  max-width:56ch;
+  line-height:var(--lh-body);
+}
+.lede b{color:#fff;font-weight:640}
+.cta{
+  display:flex;
+  gap:var(--sp-2);
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:center;
+  margin-bottom:var(--sp-2);
+}
+.meta{
+  margin:0;
+  font-size:var(--fs-xs);
+  color:var(--text-faint);
+  letter-spacing:.03em;
+  text-align:center;
+}
+
+/* 按钮 */
+.btn{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:13px 26px;
+  border-radius:999px;
+  font-size:var(--fs-sm);
+  font-weight:560;
+  text-decoration:none;
+  transition:transform .22s cubic-bezier(.2,.8,.3,1),box-shadow .22s,background .22s,border-color .22s;
+  will-change:transform;
+  border:1px solid transparent;
+}
+.btn:hover{transform:translateY(-2px)}
+.btn:active{transform:translateY(0)}
+.btn-primary{
+  background:linear-gradient(135deg,#4cc2ff,#2b9fe0);
+  color:#04202f;
+  box-shadow:0 10px 30px -10px rgba(76,194,255,.75),inset 0 1px 0 rgba(255,255,255,.42);
+  font-weight:640;
+}
+.btn-primary:hover{box-shadow:0 16px 38px -12px rgba(76,194,255,.9),inset 0 1px 0 rgba(255,255,255,.5)}
+.btn-ghost{
+  background:var(--glass-bg);
+  color:var(--text);
+  border-color:var(--glass-border);
+  backdrop-filter:var(--glass-blur);
+  -webkit-backdrop-filter:var(--glass-blur);
+}
+.btn-ghost:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.3)}
+
+/* ============================================================
+   功能卡片
+   ============================================================ */
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+  gap:var(--sp-3);
+}
+.card{
+  padding:var(--sp-4) var(--sp-3);
+  transition:transform .28s cubic-bezier(.2,.8,.3,1),border-color .28s;
+}
+.card:hover{transform:translateY(-3px);border-color:rgba(255,255,255,.3)}
+.card-ico{
+  width:48px;height:48px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:12px;
+  margin-bottom:var(--sp-3);
+  font-size:19px;
+  color:#062033;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  box-shadow:0 8px 20px -10px rgba(76,194,255,.9);
+}
+.card h3{
+  margin:0 0 var(--sp-1);
+  font-size:var(--fs-md);
+  font-weight:600;
+}
+.card p{
+  margin:0;
+  font-size:var(--fs-sm);
+  color:var(--text-dim);
+  line-height:var(--lh-body);
+}
+
+/* ============================================================
+   界面预览轮播
+   ------------------------------------------------------------
+   截图原始比例差异极大（1337×105 的任务栏 vs 1418×1068 的海床），
+   平铺必然大小失控。所以：统一深色底 + 左图右文 + 首尾相接。
+   ============================================================ */
+.carousel{
+  position:relative;
+  padding:clamp(24px,2.8vw,40px);
+  border-radius:26px;
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur);
+  -webkit-backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-border);
+  box-shadow:0 30px 70px -40px rgba(0,0,0,.95), inset 0 1px 0 rgba(255,255,255,.1);
+}
+.car-track{
+  display:flex;
+  gap:var(--sp-4);
+  overflow-x:auto;
+  scroll-snap-type:x mandatory;
+  scroll-behavior:smooth;
+  scrollbar-width:none;
+  padding:2px;
+}
+.car-track::-webkit-scrollbar{display:none}
+
+.car-slide{
+  flex:0 0 100%;
+  scroll-snap-align:center;
+  margin:0;
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);
+  gap:clamp(24px,4vw,56px);
+  align-items:center;
+}
+.car-media{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  min-height:0;
+}
+.car-media img{
+  max-width:100%;
+  max-height:clamp(200px,26vh,290px);
+  object-fit:contain;
+  border-radius:12px;
+  box-shadow:0 28px 60px -30px rgba(0,0,0,.85);
+}
+.car-slide figcaption{
+  padding:0;
+  /* 切换小组件 Tab 时：淡出 → 换文案 → 淡入 */
+  transition:opacity .18s ease, transform .18s ease;
+}
+.car-slide figcaption.switching{
+  opacity:0;
+  transform:translateY(8px);
+}
+.car-slide h3{
+  margin:0 0 var(--sp-2);
+  font-size:var(--fs-xl);
+  font-weight:600;
+  letter-spacing:-.01em;
+}
+.car-slide p{
+  margin:0 0 var(--sp-3);
+  font-size:var(--fs-base);
+  line-height:var(--lh-body);
+  color:var(--text-dim);
+}
+.car-slide ul{margin:0;padding:0;list-style:none}
+.car-slide li{
+  position:relative;
+  padding-left:20px;
+  margin-bottom:12px;
+  font-size:var(--fs-base);
+  line-height:1.6;
+  color:var(--text-dim);
+}
+.car-slide li::before{
+  content:"";
+  position:absolute;
+  left:2px;top:.62em;
+  width:5px;height:5px;
+  border-radius:50%;
+  background:var(--accent-2);
+}
+
+.car-btn{
+  position:absolute;
+  top:50%;
+  transform:translateY(-50%);
+  z-index:2;
+  width:44px;height:44px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:50%;
+  font-size:24px;
+  line-height:1;
+  cursor:pointer;
+  color:var(--text);
+  background:rgba(8,28,46,.5);
+  backdrop-filter:blur(12px);
+  -webkit-backdrop-filter:blur(12px);
+  border:1px solid rgba(255,255,255,.2);
+  transition:background .2s;
+}
+.car-btn:hover{background:rgba(76,194,255,.32)}
+.car-prev{left:-6px}
+.car-next{right:-6px}
+
+.car-dots{
+  display:flex;
+  justify-content:center;
+  gap:8px;
+  margin-top:var(--sp-4);
+}
+.car-dot{
+  width:7px;height:7px;
+  border-radius:50%;
+  border:0;
+  padding:0;
+  cursor:pointer;
+  background:rgba(255,255,255,.32);
+  transition:background .25s, width .25s;
+}
+.car-dot.active{width:22px;border-radius:4px;background:var(--accent)}
+
+/* ============================================================
+   面板外壳（WidgetSwitcher 复刻）
+   ------------------------------------------------------------
+   · 宽度 320 = XamlPreviewTemplate.DefaultDesignWidth
+   · 头部 Tab 栏：按钮 Height 28 / Padding 8,0 / 间距 8 / FontSize 12
+     （WidgetSwitcher.xaml.cs 的 CreateTabButton）
+   · 固定底部：Height 32 / Margin 0,8,0,0（WidgetSwitcher.xaml 的 FooterPanel）
+   · 底色 #2D2D2D / 卡片 #1E1E1E（Theme.xaml）
+   ============================================================ */
+.wsw{
+  /* WidgetSwitcher.xaml 根元素是 <Grid>，无背景无圆角 —— 外框由 .panel 提供 */
+  width:100%;
+  background:transparent;
+  font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;
+  user-select:none;
+  color:#EEEEEE;
+}
+.wsw-tabs{
+  display:flex;
+  gap:8px;
+  margin-bottom:8px;
+  overflow-x:auto;
+  scrollbar-width:none;
+}
+.wsw-tabs::-webkit-scrollbar{display:none}
+.wsw-tab{
+  flex:0 0 auto;
+  display:flex;align-items:center;gap:5px;   /* 图标 Margin 0,0,5,0 */
+  height:28px;
+  padding:0 8px;
+  border:0;cursor:pointer;
+  border-radius:4px;
+  background:transparent;color:#EEEEEE;
+  font-size:12px;
+  transition:background .12s;
+}
+.wsw-tab svg{
+  width:14px;height:14px;
+  fill:none;stroke:currentColor;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.wsw-tab:hover{background:rgba(255,255,255,.102)}
+.wsw-tab.on{background:#0078D4;color:#fff}       /* AccentButton */
+.wsw-tab.on:hover{background:#2B88D8}
+
+/* ============================================================
+   其余四个小组件（度量与文案均取自各自 XAML / Strings.resx）
+   ============================================================ */
+.wsw-body{min-height:0}
+.wsw-pane[hidden]{display:none}
+
+/* ---------- ① 剪贴板（ClipboardHistoryWidget.xaml） ---------- */
+.clip-search{
+  height:22px;display:flex;align-items:center;
+  padding:0 6px;margin-bottom:4px;
+  border-radius:4px;background:#333333;          /* Border Background */
+}
+.clip-search span{font-size:11px;color:#777777}   /* SearchPlaceholder */
+.clip-filters{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px}
+.clip-filters button{
+  height:20px;padding:0 6px;border:0;cursor:pointer;
+  font-size:10px;background:#2D2D2D;color:#CCCCCC;
+}
+.clip-filters button.pin{color:#FFB300}
+.clip-filters button.cur{color:#FFFFFF;background:#3A3A3A}
+.clip-list{display:flex;flex-direction:column;gap:1px;max-height:190px;overflow:hidden}
+/* 条目：Border Padding 2,2 → padding 2px */
+.clip-row{
+  display:flex;align-items:center;
+  padding:2px;cursor:pointer;border-radius:4px;
+}
+.clip-row:hover{background:rgba(255,255,255,.05)}
+.clip-check{
+  margin:0 6px 0 0;                  /* Margin 0,0,6,0 */
+  flex:0 0 auto;accent-color:#0078D4;
+}
+/* 收藏按钮：18×18 / FontSize 11 / 未收藏 ☆ #888888，已收藏 ★ #FFB300 */
+.clip-pin{
+  width:18px;height:18px;margin-right:4px;   /* Margin 0,0,4,0 */
+  flex:0 0 auto;padding:0;border:0;background:transparent;
+  font-size:11px;color:#888888;cursor:pointer;line-height:1;
+}
+.clip-pin.on{color:#FFB300}
+/* 内容：12px #EEEEEE / LineHeight 16；默认收起两行，悬停展开全文 */
+.clip-txt{
+  flex:1;min-width:0;
+  font-size:12px;color:#EEEEEE;line-height:16px;
+  overflow:hidden;max-height:32px;
+  word-break:break-word;
+}
+.clip-row:hover .clip-txt{max-height:none}
+/* 删除：18×18 / FontSize 10 / #888888 */
+.clip-del{
+  width:18px;height:18px;margin-left:4px;    /* Margin 4,0,0,0 */
+  flex:0 0 auto;padding:0;border:0;background:transparent;
+  font-size:10px;color:#888888;cursor:pointer;line-height:1;border-radius:3px;
+}
+.clip-del:hover{color:#EEEEEE;background:rgba(255,255,255,.14)}
+
+/* ---------- ② 便签（NoteWidget.xaml） ----------
+   注意：整块便签的背景是「当前便签的颜色」（RootGrid Background={Binding ColorBrush}），
+   不是面板底色 —— 所以这一屏和其余几个 widget 底色不同，这是真实行为。 */
+.wsw-pane[data-pane="note"]{
+  padding:8px;
+  border-radius:8px;
+  background:#FFD479;              /* 当前便签颜色（示例：黄） */
+  color:#1E1E1E;                   /* BodyForeground */
+}
+.note-top{display:flex;gap:6px;margin-bottom:6px}
+.note-search{
+  flex:1;height:26px;display:flex;align-items:center;
+  padding:0 6px;background:rgba(255,255,255,.2);
+}
+.note-search span{font-size:12px;color:#1E1E1E;opacity:.6}
+.note-new{
+  width:26px;height:26px;border:0;cursor:pointer;
+  font-size:14px;background:rgba(255,255,255,.2);color:#1E1E1E;
+}
+.note-chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:4px;max-height:96px;overflow:hidden}
+.note-chip{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 6px;border-radius:4px;
+  background:rgba(255,255,255,.15);
+  font-size:11px;color:#1E1E1E;
+}
+.note-chip.cur{border:2px solid #0078D4;padding:1px 4px}   /* DataTrigger IsCurrent */
+.note-chip i{width:8px;height:8px;border-radius:50%;display:block}
+.note-pin{font-style:normal;font-size:9px;margin-right:4px;line-height:1}  /* PinMark FontSize 9 / Margin 0,0,4,0 */
+.note-chip .note-txt{font-weight:400;font-size:11px;color:#1E1E1E;max-width:104px;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.note-chip .note-x{font-weight:400;font-size:9px;color:#666666;margin-left:5px;cursor:pointer}
+.note-chip .note-x:hover{color:#000}
+/* 便签编辑区外框 + 空状态提示（EmptyHintVisibility）
+   提示：12px / Opacity .65 / 居中 / IsHitTestVisible=False */
+.note-editwrap{position:relative}
+.note-empty{
+  position:absolute;inset:0;
+  display:flex;align-items:center;justify-content:center;
+  padding:0 12px;text-align:center;
+  font-size:12px;line-height:1.6;color:#1E1E1E;opacity:.65;
+  pointer-events:none;
+}
+.note-empty[hidden]{display:none}
+.note-body{
+  min-height:60px;padding:5px 7px;border-radius:4px;   /* NoteWidget: MinHeight 60 */
+  background:rgba(255,255,255,.28);
+  font-size:13px;color:#1E1E1E;line-height:1.5;
+  white-space:pre-wrap;word-break:break-word;
+  outline:none;cursor:text;
+}
+.note-body:empty::before{content:'写点什么…';color:rgba(30,30,30,.45)}
+
+
+/* 时间输入行（InputPanel）：Grid 4 列 * * * Auto / Margin 0,0,0,6
+   输入框走 DarkTextBox：CardBrush(#1E1E1E) 底 / #EEEEEE 字 / 无边框 / Padding 6,3 */
+.tm-input{
+  display:grid;
+  grid-template-columns:1fr 1fr 1fr auto;
+  align-items:center;
+  margin-bottom:6px;
+}
+.tm-input[hidden]{display:none}
+.tm-input input{
+  background:#1E1E1E;color:#EEEEEE;border:0;
+  padding:3px 6px;font-size:12px;text-align:center;
+  border-radius:3px;caret-color:#0078D4;outline:none;
+  min-width:0;
+}
+.tm-colon{text-align:center;font-size:14px;color:#8A8A8A}
+.tm-unit{font-size:11px;color:#8A8A8A;margin-left:4px;white-space:nowrap}
+.tm-presets[hidden],.tm-progress[hidden]{display:none}
+/* ---------- ③ 计时（TimerWidget.xaml） ---------- */
+.tm-modes{display:flex;justify-content:center;margin-bottom:6px}
+.tm-modes button{
+  height:26px;padding:0 10px;border:0;cursor:pointer;
+  border-radius:4px;background:transparent;color:#EEEEEE;font-size:12px;
+}
+.tm-modes button+button{margin-left:6px}
+.tm-modes button.cur{background:#0078D4;color:#fff}
+.tm-time{
+  margin:6px 0 0;text-align:center;
+  font-size:32px;font-weight:300;color:#EEEEEE;
+  font-variant-numeric:tabular-nums;
+}
+.tm-state{margin:2px 0 4px;text-align:center;font-size:10px;color:#8A8A8A}
+.tm-progress{height:8px;border-radius:4px;overflow:hidden;background:#1E1E1E}
+.tm-progress i{display:block;height:100%;border-radius:4px;background:#0078D4;transition:width .25s}
+.tm-presets{display:flex;justify-content:center;gap:2px;margin:10px 0 8px}
+.tm-presets button{
+  padding:4px 8px;border:0;cursor:pointer;
+  border-radius:4px;background:transparent;color:#EEEEEE;font-size:12px;
+}
+.tm-presets button:hover{background:rgba(255,255,255,.102)}
+.tm-actions{display:flex;justify-content:center}
+.tm-actions button{
+  height:30px;border:0;cursor:pointer;border-radius:4px;font-size:12px;
+  background:transparent;color:#EEEEEE;
+}
+.tm-actions .tm-start{width:76px;background:#0078D4;color:#fff}
+.tm-actions .tm-start:hover{background:#2B88D8}
+.tm-actions button+button{width:72px;margin-left:8px}
+.tm-actions button+button:hover{background:rgba(255,255,255,.102)}
+
+/* ---------- ⑤ 划词翻译（TextAiWidget.xaml） ---------- */
+.ta-head{display:flex;align-items:center;margin-bottom:8px}
+.ta-head b{font-size:13px;font-weight:600;flex:1}
+.ta-head button{
+  height:24px;padding:0 8px;border:0;cursor:pointer;
+  border-radius:4px;background:transparent;color:#EEEEEE;font-size:12px;
+}
+.ta-head button:hover{background:rgba(255,255,255,.102)}
+.ta-card{margin-bottom:8px;padding:6px 8px;border-radius:8px;background:#1E1E1E}
+.ta-label{font-size:11px;color:#8A8A8A;margin-bottom:4px}
+.ta-src{font-size:12px;color:#CCCCCC;line-height:16px}
+.ta-row{display:flex;align-items:center;margin-bottom:4px}
+.ta-row .ta-label{margin:0}
+.ta-state{flex:1;margin-left:10px;font-size:10.5px;color:#8A8A8A}
+.ta-row button{
+  height:22px;padding:0 8px;border:0;cursor:pointer;
+  border-radius:4px;background:transparent;color:#EEEEEE;font-size:11px;
+}
+.ta-row button:hover{background:rgba(255,255,255,.102)}
+.ta-out{font-size:13px;color:#EEEEEE;line-height:1.5}
+
+.wsw-foot{
+  height:32px;
+  margin-top:8px;
+  display:flex;align-items:center;
+  font-size:10px;color:#666666;                  /* Calculator_FooterHint */
+}
+
+/* ============================================================
+   任务栏那一屏：它本身是【横向】的（真实截图 1337×105），
+   塞进 392px 会截断。面板宽度在真实产品里本就可拖拽，
+   所以这一屏给更宽的版心 + 更窄的文字列。
+   ============================================================ */
+.car-slide-wide{
+  grid-template-columns:minmax(0,1fr) 186px;   /* 文字列收窄，宽度让给横向的任务栏 */
+  gap:clamp(20px,3vw,32px);
+}
+.car-slide-wide .panel{
+  width:100%;
+  max-width:860px;
+}
+/* 任务栏内容横向铺开，不截断 */
+.car-slide-wide .tb{
+  height:auto;                       /* 高度由内容定，写死会把两组内容挤到两行 */
+  flex-wrap:nowrap;
+  padding:4px 6px;
+}
+.car-slide-wide .tb-wins{
+  flex:1;min-width:0;flex-wrap:nowrap;
+  justify-content:flex-start;
+}
+
+/* ============================================================
+   面板骨架（MainWindow.xaml 的 MainPanel）
+   ------------------------------------------------------------
+   Border #2D2D2D / CornerRadius 8 / Padding 6
+     ├─ 顶部状态栏：Height 28 / Margin 0,0,0,6（SystemStatusView.xaml）
+     └─ 主区：IconBarColumn(60) + 分隔(0) + 内容(*)
+   ============================================================ */
+.panel{
+  /* 真实尺寸：XamlPreviewTemplate.DefaultDesignWidth=320（内容区）
+     + IconBarColumn 60（左侧竖条）+ Padding 12 ≈ 392。
+     不缩小（否则看不清），也不撑满（那会失真）。 */
+  zoom:1;
+  width:392px;
+  padding:6px;                       /* Border Padding 6 */
+  border-radius:8px;                 /* CornerRadius 8 */
+  background:#2D2D2D;                /* MainPanel Background */
+  border:1px solid #3A3A3A;
+  box-shadow:0 20px 46px -22px rgba(0,0,0,.9);
+  font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;
+  user-select:none;
+  color:#EEEEEE;
+}
+/* 顶部状态栏：每项 = 图标 + 文字（13px #AAAAAA），项间距 15 */
+.panel-status{
+  height:28px;
+  margin-bottom:6px;                 /* Margin 0,0,0,6 */
+  display:flex;align-items:center;
+  overflow:hidden;
+  font-size:13px;color:#AAAAAA;
+}
+.panel-status .ps-time{
+  font-weight:600;                   /* TimeText SemiBold */
+  margin-right:15px;
+}
+.panel-status .ps-item{display:flex;align-items:center;margin-right:15px}
+.panel-status .ps-item svg{
+  width:14px;height:14px;            /* LineIcon 默认 14 */
+  margin-right:4px;                  /* Margin 4,0,0,0 */
+  fill:none;stroke:#AAAAAA;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.panel-status .ps-item b{font-weight:400}
+/* 主区：左侧交互竖条 + 内容 */
+.panel-main{display:flex;align-items:stretch}
+.panel-rail{
+  flex:0 0 60px;                     /* IconBarColumn Width 60 */
+  border-radius:6px;
+  transition:background .15s;
+}
+/* hover/拖放反馈条：IconHoverBar Background #26FFFFFF / CornerRadius 6 */
+.panel-rail:hover{background:rgba(255,255,255,.149)}
+.panel-content{flex:1;min-width:0}
+/* 骨架之外的内容（WidgetSwitcher）不再自带外框 */
+.panel .wsw{
+  width:100%;max-width:none;
+  padding:0;border:0;background:transparent;box-shadow:none;
+}
+
+/* ============================================================
+   海床（只读预览）—— 结构照 Settings/Pages/SeabedPage.xaml
+   配色照 SettingsWindow.xaml：窗口 #F9F9F9 / 卡片 #FFFFFF / 文字 #1E1E1E
+   注意整体是【浅色主题】，与深色面板不同（它本来是设置窗口里的一页）
+   ============================================================ */
+.sb{
+  display:flex;gap:6px;
+  width:100%;
+  height:520px;                    /* 给右侧编辑器留出足够高度 */
+  padding:8px;
+  border-radius:8px;
+  background:#F9F9F9;              /* SettingsWindowBg */
+  color:#1E1E1E;                   /* SettingsWindowFg */
+  font-size:12px;
+  user-select:none;
+  text-align:left;
+}
+/* 左：配置树 —— Border SettingsCardBg / CornerRadius 8 / Padding 6 / 宽度 230 */
+.sb-tree{
+  flex:0 0 230px;min-width:230px;
+  padding:6px;
+  border-radius:8px;
+  background:#FFFFFF;              /* SettingsCardBg */
+  border:1px solid #E6E6E6;
+  overflow:hidden;
+}
+.sb-filter{
+  display:flex;align-items:center;gap:4px;
+  margin:2px 0 6px;padding:0 2px;
+  font-size:11px;color:#888888;
+}
+.sb-filter i{font-style:normal;font-size:12px;color:#AAAAAA}
+.sb-list{list-style:none;margin:0;padding:0;font-size:12px}
+.sb-list li{
+  padding:1px 4px;border-radius:4px;cursor:pointer;
+  display:flex;align-items:center;gap:4px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.sb-list li:hover{background:#EAF3FB}
+.sb-list li.cur{background:#CCE4F7;outline:1px solid #99C9EE}
+.sb-list li.lv1{font-weight:400;margin-top:4px}
+.sb-list li.lv2{padding-left:14px}
+.sb-list li.lv3{padding-left:30px;color:#444444}
+/* 行末 ✕：紧跟名字（不是推到最右）；功能项红色、文件项灰色 */
+.sb-list li b{
+  margin-left:4px;font-weight:400;font-size:12px;color:#E06060;
+}
+.sb-list li.lv3 b{color:#AAAAAA;font-size:11px}
+
+/* GridSplitter：Width 6 / Cursor SizeWE（真实是透明的，hover 才显形） */
+.sb-splitter{
+  flex:0 0 6px;
+  align-self:stretch;
+  cursor:col-resize;
+  border-radius:3px;
+  transition:background .15s;
+}
+.sb-splitter:hover{background:rgba(0,120,212,.25)}
+
+/* ⊕ 占位行：Foreground #4A90D9 / FontSize 13（真实是 18×18 按钮，默认 Collapsed） */
+.sb-list li.add{color:#4A90D9;font-size:12px}
+.sb-list li.add em{font-style:normal;font-size:13px;margin-right:4px}
+.sb-list li.add.hit{background:#DCEBFB}
+/* 配置树右键菜单（VS Code / 文件资源管理器语义） */
+.sb-menu{
+  position:absolute;z-index:20;min-width:170px;padding:4px;
+  border-radius:6px;background:#FFFFFF;
+  border:1px solid #D0D0D0;
+  box-shadow:0 8px 24px -8px rgba(0,0,0,.28);
+}
+.sb-menu[hidden]{display:none}
+.sb-menu button{
+  display:block;width:100%;padding:5px 10px;
+  border:0;border-radius:4px;background:transparent;
+  font-size:12px;color:#1E1E1E;text-align:left;cursor:pointer;
+}
+.sb-menu button:hover{background:#EAF3FB}
+.sb-menu-sep{height:1px;margin:4px 2px;background:#E6E6E6}
+/* 配置树卡片是菜单的定位参照 */
+.sb-tree{position:relative}
+/* 编辑器 ↔ 预览 的分隔条（Height 5 / Cursor SizeNS / 透明） */
+.sb-hsplit{
+  flex:0 0 5px;margin:2px 0;cursor:row-resize;border-radius:3px;
+  transition:background .15s;
+}
+.sb-hsplit:hover{background:rgba(0,120,212,.25)}
+/* 右：编程区 —— Grid Margin 12,0,0,0 */
+.sb-edit{flex:1;min-width:0;display:flex;flex-direction:column;margin-left:6px}
+.sb-head{display:flex;align-items:baseline;gap:10px;flex:0 0 auto}
+.sb-head b{font-size:13px;font-weight:600;white-space:nowrap}   /* txtNodeTitle */
+.sb-head span{font-size:10.5px;color:#888888}                     /* txtNodeHint */
+/* 代码框：Consolas / FontSize 12 / Padding 8 / Background SettingsCardBg */
+.sb-code{
+  flex:1;min-height:0;margin:8px 0 0;padding:8px;
+  border-radius:4px;background:#FFFFFF;
+  border:1px solid #E6E6E6;
+  font-family:Consolas,"Cascadia Mono",monospace;
+  font-size:12px;line-height:1.5;color:#1E1E1E;
+  overflow:auto;white-space:pre;
+  cursor:text;
+}
+
+/* ---------- 完全编程模式（xamlEditorPanel）----------
+   Tab（.xaml / .xaml.cs）+ 底部预览区（previewFrame：卡片底 / 圆角 6 / Padding 8 / 细边框） */
+.sb-xaml{
+  flex:1;min-height:0;display:flex;flex-direction:column;margin-top:8px;
+}
+.sb-xaml[hidden]{display:none}
+.sb-tabs{display:flex;gap:2px;flex:0 0 auto}
+.sb-tabs button{
+  padding:5px 12px;border:1px solid #D0D0D0;border-bottom:0;
+  border-radius:6px 6px 0 0;background:#F2F2F2;color:#1E1E1E;
+  font-size:12px;cursor:pointer;
+}
+.sb-tabs button.on{background:#FFFFFF;font-weight:600}
+.sb-xaml .sb-code{
+  flex:1;min-height:80px;margin:0;border-radius:0 0 4px 4px;
+  border-top:1px solid #D0D0D0;
+}
+.sb-preview-label{
+  flex:0 0 auto;margin:6px 0 2px;
+  font-size:10.5px;color:#888888;                    /* txtPreviewLabel */
+}
+/* previewFrame：SettingsCardBg / CornerRadius 6 / Padding 8 / BorderBrush #33333333 */
+.sb-preview{
+  flex:0 0 42%;min-height:70px;padding:8px;
+  border-radius:6px;background:#FFFFFF;
+  border:1px solid rgba(51,51,51,.2);
+  overflow:hidden;
+}
+.pv-widget{
+  height:100%;padding:8px;border-radius:8px;
+  background:#2D2D2D;                  /* 渲染出的小组件自带底色 */
+  display:flex;flex-direction:column;justify-content:center;
+}
+.pv-tabs{display:flex;justify-content:center;gap:6px;margin-bottom:6px}
+.pv-tabs span{
+  height:26px;padding:0 10px;display:flex;align-items:center;
+  border-radius:4px;font-size:12px;color:#EEEEEE;background:transparent;
+}
+.pv-tabs span.on{background:#0078D4;color:#fff}
+.pv-time{
+  text-align:center;font-size:32px;font-weight:300;color:#EEEEEE;
+  font-variant-numeric:tabular-nums;
+}
+.pv-state{text-align:center;font-size:10px;color:#8A8A8A;margin-top:2px}
+.sb-status{flex:0 0 auto;margin:6px 0 0;font-size:11px;color:#666666}   /* txtJsonStatus */
+/* 工具按钮：Win11Button（白底 / #D0D0D0 边框 / 高 28 / Padding 16,0 / FontSize 12） */
+.sb-actions{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 0}
+.sb-actions button,.sb-preset button,.sb-prow button{
+  height:28px;padding:0 16px;
+  border:1px solid #D0D0D0;border-radius:4px;
+  background:#FFFFFF;color:#1E1E1E;
+  font-size:12px;cursor:pointer;
+}
+.sb-actions button:hover,.sb-preset button:hover{background:#F2F2F2}
+.sb-actions select{
+  height:28px;width:110px;padding:0 6px;            /* ComboBox Width 110 / Height 28 */
+  border:1px solid #D0D0D0;border-radius:4px;
+  background:#FFFFFF;color:#1E1E1E;font-size:11px;
+}
+/* 预设卡：Border SettingsCardBg / CornerRadius 8 / Padding 10,8 / Margin 0,12,0,0 */
+.sb-preset{
+  flex:0 0 auto;
+  margin-top:10px;padding:8px 10px;
+  border-radius:8px;background:#FFFFFF;
+  border:1px solid #E6E6E6;
+}
+.sb-preset .sb-prow{display:flex;align-items:center;gap:8px}
+.sb-preset .sb-prow b{font-size:12px;font-weight:600;flex:1}
+.sb-preset p{
+  margin:2px 0 6px;font-size:10.5px;color:#999999;line-height:1.5;
+}
+.sb-preset .sb-prow+.sb-prow{margin-top:8px}
+.sb-preset .sb-prow select{
+  flex:1;height:28px;padding:0 6px;
+  border:1px solid #D0D0D0;border-radius:4px;
+  background:#FFFFFF;color:#1E1E1E;font-size:12px;
+}
+.sb-preset .sb-prow button{height:28px;padding:0 12px}
+
+/* ============================================================
+   ① 边缘任务栏（结构照 TaskbarView.xaml）
+   快捷方式 28×28；窗口项 = 图标16 + 名称12px + 关闭钮18
+   ============================================================ */
+.tb{
+  /* TaskbarView.xaml 的根元素是 Background="Transparent" ——
+     它本身没有底色/边框/圆角，显示的是面板底色（MainPanel 的 #2D2D2D）。
+     这里若再套一层背景就会变成"黑块"。
+     任务栏是【一行】横向排列：写死高度会把两组内容挤成两行。 */
+  display:flex;align-items:center;flex-wrap:nowrap;
+  width:100%;min-height:44px;padding:0 2px;
+  background:transparent;
+  user-select:none;
+}
+/* ============================================================
+   ① 边缘任务栏（结构照 TaskbarView.xaml）
+   快捷方式 28×28；窗口项 = 图标16 + 名称12px + 关闭钮18
+   ============================================================ */
+.tb-shortcuts{display:flex;align-items:center;gap:2px}
+.tb-ico{
+  width:36px;height:36px;          /* Padding 4 ×2 + IconSize 28 */
+  display:flex;align-items:center;justify-content:center;
+  border-radius:5px;cursor:pointer;
+  transition:background .12s;
+}
+.tb-ico:hover{background:rgba(255,255,255,.10)}
+/* 图标统一走 LineIcon 样式：stroke #AAAAAA / 粗细 1.8 / 圆角端点 */
+.tb-ico svg{width:20px;height:20px;fill:none;stroke:#AAAAAA;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+.tb-sep{width:1px;height:22px;margin:0 8px;background:rgba(255,255,255,.22)}
+.tb-wins{display:flex;align-items:center;gap:2px;overflow:hidden}
+.tb-win{display:flex;align-items:center;gap:6px;
+  padding:2px 6px;border-radius:4px;cursor:pointer;
+  transition:background .12s;
+}
+.tb-win:hover{background:rgba(255,255,255,.10)}
+.tb-win i{display:flex;align-items:center}
+.tb-win i svg{width:16px;height:16px;   /* TaskbarView: Width/Height 16 */
+  fill:none;stroke:#AAAAAA;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tb-win span{
+  font-size:12px;color:#EEEEEE;max-width:120px;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+/* WindowTemplate 的关闭钮：Button 18×18（Margin 6,0,0,0），内部 IconClose 12×12 */
+.tb-win .tb-x{
+  width:18px;height:18px;margin-left:6px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:3px;cursor:pointer;
+}
+.tb-win .tb-x svg{
+  width:12px;height:12px;                   /* IconClose Width/Height 12 */
+  fill:none;stroke:#AAAAAA;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.tb-win .tb-x:hover{background:rgba(255,255,255,.14)}
+.tb-win .tb-x:hover svg{stroke:#EEEEEE}
+
+/* GroupTemplate：Border #14FFFFFF / CornerRadius 6 / Padding 4 / Margin 2 */
+.tb-group{
+  position:relative;flex:0 0 auto;
+  padding:4px;margin:2px;
+  border-radius:6px;
+  background:rgba(255,255,255,.078);   /* #14FFFFFF */
+  cursor:pointer;
+}
+.tb-group-grid{
+  width:28px;height:28px;              /* 与 IconSize 一致 */
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  grid-template-rows:1fr 1fr;
+  gap:1px;
+}
+.tb-group-grid span{display:flex;align-items:center;justify-content:center;overflow:hidden}
+.tb-group-grid svg{width:12px;height:12px;fill:none;stroke:#AAAAAA;
+  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+/* 成员数角标：#CC000000 / CornerRadius 6 / Padding 3,0 / Margin 0,0,-4,-4 / FontSize 9 */
+.tb-group-count{
+  position:absolute;right:-4px;bottom:-4px;
+  padding:0 3px;border-radius:6px;
+  background:rgba(0,0,0,.8);
+  font-size:9px;font-weight:400;color:#EEEEEE;line-height:14px;
+}
+/* 悬停展开成员列表（Group_MouseEnter 的弹层） */
+.tb-group-pop{
+  position:absolute;left:0;top:calc(100% + 6px);z-index:5;
+  min-width:190px;padding:4px;
+  border-radius:6px;background:#2D2D2D;
+  border:1px solid #3A3A3A;
+  box-shadow:0 14px 30px -16px rgba(0,0,0,.9);
+}
+.tb-group-pop[hidden]{display:none}
+/* 最小化状态（ToggleMinimize 的视觉表示） */
+.tb-win.min{opacity:.4}
+.tb-win.min span{text-decoration:line-through}
+/* 快捷方式按下反馈 */
+.tb-ico.hit{background:rgba(76,194,255,.22)}
+.tb-empty{font-size:11px;color:#777777;padding:0 6px}
+
+/* ============================================================
+   ② 应用辅助（严格照 AppHelperView.xaml + PanelMediaPlayer.xaml + MediaControlView.xaml）
+   页头：标题 14 SemiBold / 提示 10 #8A8A8A / 翻页 IconButton
+   ============================================================ */
+.ah{
+  /* AppHelperView.xaml 根元素是 <Grid Margin="4">，无背景 —— 同样不该自带外框 */
+  width:100%;
+  margin:4px;
+  background:transparent;
+  user-select:none;
+}
+.ah-head{
+  display:flex;align-items:flex-start;gap:8px;
+  padding:8px 8px 0;margin:2px 2px 8px;   /* Grid Margin 2,0,2,8 */
+}
+.ah-titles{flex:1;min-width:0}
+.ah-titles b{display:block;font-size:14px;font-weight:600;color:#EEEEEE}
+.ah-titles span{
+  display:block;margin-top:2px;font-size:10px;color:#8A8A8A;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+.ah-pager{display:flex;align-items:center;flex:0 0 auto}
+.ah-pager button{
+  width:28px;height:24px;padding:0;              /* IconButton */
+  display:flex;align-items:center;justify-content:center;
+  border:0;background:transparent;cursor:pointer;border-radius:4px;
+}
+.ah-pager button:hover{background:rgba(255,255,255,.102)}
+.ah-pager button svg{width:14px;height:14px;fill:none;stroke:#AAAAAA;
+  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ah-pager span{margin:0 6px;font-size:11px;color:#8A8A8A}   /* PageIndicator */
+
+/* 第 1 页：画中画（PanelMediaPlayer.xaml） */
+.pip-stage{
+  height:170px;
+  background:#1A1A1A;              /* VideoArea Background */
+  display:flex;align-items:center;justify-content:center;
+}
+.pip-empty{
+  text-align:center;
+  font-size:11px;line-height:18px;color:#777777;
+}
+.pip-tools{
+  display:flex;align-items:center;
+  padding:4px 6px;background:#1E1E1E;   /* Border Padding 6,4 */
+}
+.pip-tools button{
+  width:28px;height:24px;padding:0;
+  display:flex;align-items:center;justify-content:center;
+  border:0;cursor:pointer;border-radius:4px;
+  background:transparent;color:#EEEEEE;font-size:12px;
+  transition:background .12s;
+}
+.pip-tools button:hover{background:rgba(255,255,255,.102)}
+.pip-tools button+button{margin-left:4px}
+.pip-tools .pip-stop svg{
+  width:14px;height:14px;fill:none;stroke:#AAAAAA;stroke-width:1.8;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.pip-title{
+  margin-left:8px;font-size:10px;color:#8A8A8A;
+  max-width:160px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+
+/* 第 2 页：媒体控制（MediaControlView.xaml） */
+.mc-bar{
+  display:flex;align-items:center;margin:0 2px 6px;
+}
+.mc-bar>span{
+  flex:1;font-size:11px;color:#8A8A8A;   /* StatusText */
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+.mc-bar button{
+  height:26px;padding:0 8px;              /* FlatButton */
+  display:flex;align-items:center;gap:5px;
+  border:0;cursor:pointer;border-radius:4px;
+  background:transparent;color:#EEEEEE;font-size:11px;
+}
+.mc-bar button:hover{background:rgba(255,255,255,.102)}
+.mc-bar button svg{width:14px;height:14px;fill:none;stroke:#AAAAAA;
+  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.mc-list{display:flex;flex-direction:column;gap:1px;padding:0 2px 8px}
+/* DarkListBox 的 ItemContainerStyle：Padding 4,2 / CornerRadius 6 /
+   悬停 HoverBrush(#3A3A3A) / 选中 #004578 */
+.mc-item{
+  display:flex;align-items:center;gap:8px;
+  padding:2px 4px;border-radius:6px;cursor:pointer;
+  transition:background .12s;
+}
+.mc-item:hover{background:#3A3A3A}
+.mc-item.sel{background:#004578}
+.mc-cover{
+  flex:0 0 40px;width:40px;height:40px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:4px;background:#242424;
+  font-size:18px;color:#555555;           /* ♪ 占位 */
+}
+.mc-meta{flex:1;min-width:0}
+.mc-meta span{display:block;font-size:10px;color:#8A8A8A}   /* AppName */
+.mc-meta b{
+  display:block;font-size:12px;font-weight:400;color:#EEEEEE;   /* DisplayText */
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+.mc-item button{
+  width:28px;height:24px;padding:0;        /* IconButton */
+  display:flex;align-items:center;justify-content:center;
+  border:0;background:transparent;cursor:pointer;border-radius:4px;
+}
+.mc-item button:hover{background:rgba(255,255,255,.102)}
+.mc-item button svg{width:14px;height:14px;fill:none;stroke:#AAAAAA;
+  stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* ============================================================
+   ③ AI 助手（结构照 05-AI 的实际布局）
+   ============================================================ */
+.ai{
+  /* 外框/缩放由 .panel 统一提供，这里只管内容排版 */
+  width:100%;
+  color:#EEEEEE;
+}
+.ai-head{display:flex;align-items:flex-start;gap:7px;margin-bottom:8px}
+.ai-logo{flex:0 0 auto;line-height:1}
+.ai-logo svg{
+  width:18px;height:18px;                   /* AiChatView: Width/Height 18 */
+  fill:none;stroke:#4CA1FF;stroke-width:1.8;/* LineIconAccent */
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.ai-titles{flex:1;min-width:0}
+.ai-titles b{display:block;font-size:14px;font-weight:600}
+.ai-titles span{display:block;font-size:10.5px;color:#8A8A8A;margin-top:1px}
+.ai-ico{
+  border:0;background:transparent;color:#CCCCCC;cursor:pointer;
+  font-size:11px;padding:2px 4px;border-radius:4px;
+}
+.ai-ico:hover{background:rgba(255,255,255,.12)}
+.ai-session{display:flex;align-items:center;gap:6px;margin-bottom:10px}
+.ai-select{
+  flex:1;height:24px;display:flex;align-items:center;
+  padding:0 8px;border-radius:4px;
+  background:rgba(255,255,255,.10);
+  font-size:11px;color:#CCCCCC;
+  overflow:hidden;white-space:nowrap;
+}
+.ai-session button{
+  border:0;background:transparent;color:#CCCCCC;cursor:pointer;
+  font-size:11px;padding:2px 4px;border-radius:4px;
+}
+.ai-session button:hover{background:rgba(255,255,255,.12)}
+.ai-empty{text-align:center;padding:14px 6px 16px}
+.ai-star{display:block;margin-bottom:6px}
+.ai-star svg{
+  width:30px;height:30px;
+  fill:none;stroke:#4CA1FF;stroke-width:1.6;
+  stroke-linecap:round;stroke-linejoin:round;
+}
+.ai-empty b{display:block;font-size:15px;font-weight:600;margin-bottom:6px}
+.ai-empty p{margin:0 0 12px;font-size:11px;line-height:1.7;color:#A8A8A8}
+.ai-cta{
+  padding:7px 16px;border:0;cursor:pointer;
+  border-radius:4px;background:#0078D4;color:#fff;font-size:12px;
+}
+.ai-cta:hover{background:#2B88D8}
+.ai-quick{
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;
+  padding:8px 0;border-top:1px solid rgba(255,255,255,.10);
+  font-size:11px;color:#8A8A8A;
+}
+.ai-quick button{
+  border:0;background:transparent;color:#CCCCCC;cursor:pointer;
+  font-size:11px;padding:2px 3px;border-radius:4px;
+}
+.ai-quick button:hover{background:rgba(255,255,255,.12)}
+.ai-out{margin-left:auto;font-size:10.5px;color:#8A8A8A}
+/* 输入行：Grid Margin 2,0,2,0；输入框 Height 30 / FontSize 12.5 */
+.ai-input{display:flex;align-items:flex-end;gap:4px;margin:8px 2px 0}
+.ai-field{
+  flex:1;min-width:0;height:30px;padding:5px 8px;   /* Height 30 */
+  border-radius:6px;background:#1E1E1E;
+  font-size:12.5px;color:#EEEEEE;line-height:1.5;   /* FontSize 12.5 */
+  outline:none;overflow-y:auto;
+}
+.ai-field:empty::before{content:'输入消息…';color:#666666}
+.ai-expand{
+  flex:0 0 26px;width:26px;height:30px;   /* Width 26 / Height 30 / FontSize 13 */
+  border:0;cursor:pointer;border-radius:4px;
+  background:transparent;color:#EEEEEE;font-size:13px;
+}
+.ai-expand:hover{background:rgba(255,255,255,.102)}
+.ai-sendwrap{display:flex;align-items:flex-end}
+.ai-send{
+  width:58px;height:30px;                 /* Width 58 / Height 30 / FontSize 12 */
+  border:0;cursor:pointer;border-radius:4px;
+  background:#0078D4;color:#fff;font-size:12px;
+}
+.ai-send:hover{background:#2B88D8}
+.ai-stop{
+  width:30px;height:30px;margin-left:4px; /* Width 30 / Height 30 / FontSize 11 */
+  border:0;cursor:pointer;border-radius:4px;
+  background:transparent;color:#EEEEEE;font-size:11px;
+}
+.ai-stop:hover{background:rgba(255,255,255,.102)}
+.ai-stop[hidden]{display:none}
+
+/* ============================================================
+   计算器面板复刻
+   ------------------------------------------------------------
+   严格取自真实源码，不自行发挥：
+     · 结构/按键/字号 → seabed/小组件/calculator/CalculatorWidget.xaml
+     · 颜色/圆角/悬停   → src/UI/Theme/Theme.xaml
+   只是把 WPF 的度量搬到 CSS，不是"画一个看起来像的"。
+   ============================================================ */
+.cal{
+  width:100%;
+  /* 背景/边框/内边距/宽度都由外层 .wsw（WidgetSwitcher）提供，
+     这里只保留本体需要的排版 —— 避免"内外两层壳"叠在一起 */
+  font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;
+  user-select:none;
+}
+/* 模式切换：AccentButton + FlatButton，Height 24 / Padding 8,0 / 间距 6 */
+.cal-modes{display:flex;margin-bottom:6px}
+.cal-mode{
+  height:24px;padding:0 8px;border:0;cursor:pointer;
+  border-radius:4px;                        /* FlatButton CornerRadius */
+  font-size:12px;                           /* FlatButton FontSize */
+  background:transparent;color:#EEEEEE;     /* TextPrimaryColor */
+  transition:background .12s;
+}
+.cal-mode+.cal-mode{margin-left:6px}
+.cal-mode:hover{background:rgba(255,255,255,.102)}   /* #1AFFFFFF */
+.cal-mode:active{background:rgba(255,255,255,.051)}  /* #0DFFFFFF */
+.cal-mode.cal-accent{background:#0078D4;color:#fff}  /* AccentColor */
+.cal-mode.cal-accent:hover{background:#2B88D8}       /* AccentHoverColor */
+
+/* 显示区：CardStyle（#1E1E1E / 圆角 8 / Padding 8） */
+.cal-display{
+  margin-bottom:6px;padding:8px;
+  border-radius:8px;background:#1E1E1E;
+}
+.cal-expr{
+  font-size:11px;color:#8A8A8A;            /* TextSecondaryColor */
+  text-align:right;min-height:14px;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+.cal-value{
+  margin-top:4px;
+  font-size:26px;font-weight:300;color:#EEEEEE;
+  text-align:right;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+  font-variant-numeric:tabular-nums;
+}
+
+/* 键盘：4 列 × 5 行，FlatButton 度量（圆角 4 / Padding 8,4） */
+
+/* 科学函数行 / 程序员行：按键度量沿用 FlatButton（圆角4 / FontSize 11 / Padding 6,2） */
+.cal-sci{
+  display:flex;flex-wrap:wrap;gap:3px;
+  margin-bottom:6px;
+}
+/* display:flex 会盖掉 [hidden] 的 display:none（特异性问题），必须显式声明 */
+.cal-sci[hidden],
+.cal-prog[hidden]{display:none}
+.cal-sci button,
+.cal-prog button{
+  padding:2px 6px;border:0;cursor:pointer;
+  border-radius:4px;background:transparent;color:#EEEEEE;
+  font-size:11px;
+  transition:background .12s;
+}
+.cal-sci button:hover,
+.cal-prog button:hover{background:rgba(255,255,255,.102)}
+.cal-sci button:active,
+.cal-prog button:active{background:rgba(255,255,255,.051)}
+.cal-sci button[data-deg]{font-size:10px}
+.cal-prog{margin-bottom:6px}
+.cal-prog-row{display:flex;flex-wrap:wrap;gap:3px}
+.cal-prog-row+.cal-prog-row{margin-top:3px}
+.cal-prog button{font-size:10px;padding:1px 5px}
+/* 当前进制高亮（对应 XAML 里 RadixText 的存在感） */
+.cal-prog button.cur{background:#0078D4;color:#fff}
+.cal-keys{display:grid;grid-template-columns:repeat(4,1fr)}
+.cal-keys button{
+  padding:8px 4px;border:0;cursor:pointer;
+  border-radius:4px;background:transparent;color:#EEEEEE;
+  font-size:16px;
+  transition:background .12s;
+}
+.cal-keys button:hover{background:rgba(255,255,255,.102)}
+.cal-keys button:active{background:rgba(255,255,255,.051)}
+.cal-keys .cal-op{font-size:15px;color:#2B88D8}      /* 运算符：蓝字，无底色 */
+.cal-keys .cal-accent{background:#0078D4;color:#fff} /* AccentButton */
+.cal-keys .cal-accent:hover{background:#2B88D8}
+
+/* ============================================================
+   快速上手
+   ============================================================ */
+.steps{
+  list-style:none;
+  margin:0;
+  padding:0;
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(258px,1fr));
+  gap:var(--sp-3);
+}
+.steps li{
+  display:flex;
+  gap:var(--sp-2);
+  padding:var(--sp-3);
+  align-items:flex-start;
+}
+.step-n{
+  flex:0 0 34px;
+  height:34px;
+  display:flex;align-items:center;justify-content:center;
+  border-radius:50%;
+  font-size:14px;
+  font-weight:700;
+  color:#062033;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+}
+.steps h3{margin:2px 0 7px;font-size:15.5px;font-weight:640}
+.steps p{margin:0;font-size:13.6px;color:var(--text-dim);line-height:1.78}
+.steps b{color:#dff1fb;font-weight:600}
+
+/* ============================================================
+   隐私
+   ============================================================ */
+.privacy{padding:clamp(28px,4vw,46px)}
+.privacy .sec-title{margin-bottom:var(--sp-3)}
+.privacy-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:26px 30px;
+}
+.privacy-grid h3{
+  margin:0 0 8px;
+  font-size:15px;
+  font-weight:640;
+  color:var(--accent-2);
+}
+.privacy-grid p{
+  margin:0;
+  font-size:13.6px;
+  color:var(--text-dim);
+  line-height:1.8;
+}
+.privacy-grid code,.seabed-note code{
+  font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-size:12.5px;
+  padding:1px 6px;
+  border-radius:5px;
+  background:rgba(255,255,255,.10);
+  color:#cfe9f8;
+}
+.privacy-links{
+  margin:var(--sp-4) 0 0;
+  font-size:13.5px;
+  color:var(--text-faint);
+}
+.privacy-links a{color:var(--accent);text-decoration:none}
+.privacy-links a:hover{text-decoration:underline}
+.privacy-links span{margin:0 8px;opacity:.5}
+
+/* ============================================================
+   结尾 CTA
+   ============================================================ */
+.final .final-card{
+  padding:clamp(34px,5vw,60px);
+  text-align:center;
+}
+.final-card h2{
+  margin:0 0 10px;
+  font-size:clamp(23px,3.2vw,32px);
+  font-weight:680;
+}
+.final-card p{margin:0 0 26px;color:var(--text-dim);font-size:15px}
+.final-card .cta{justify-content:center;margin-bottom:0}
+
+/* ============================================================
+   海床（页面最深处，条件出现的覆盖层）
+   ------------------------------------------------------------
+   默认完全不存在（不占滚动空间）：
+     正常滚到底、水没满 → 只停在页脚，看不到海床；
+     水满着到底        → .at-seabed 打开，这一层淡入，可独立滚动。
+   ============================================================ */
+.seabed{
+  position:fixed;
+  inset:0;
+  z-index:30;
+  overflow-y:auto;
+  overscroll-behavior:contain;
+  display:flex;
+  align-items:flex-start;
+  padding:clamp(70px,10vw,120px) var(--gutter) 90px;
+  opacity:0;
+  visibility:hidden;
+  pointer-events:none;
+  transform:translateY(26px);
+  transition:opacity .7s ease, transform .9s cubic-bezier(.2,.8,.3,1), visibility .7s;
+  background:linear-gradient(180deg,
+    rgba(6,34,56,.55) 0%,
+    rgba(5,28,48,.72) 22%,
+    rgba(4,24,42,.86) 55%,
+    rgba(3,18,32,.94) 100%);
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+}
+html.at-seabed .seabed{
+  opacity:1;
+  visibility:visible;
+  pointer-events:auto;
+  transform:translateY(0);
+}
+.seabed::-webkit-scrollbar{width:8px}
+.seabed::-webkit-scrollbar-thumb{background:rgba(120,200,235,.3);border-radius:4px}
+
+.seabed-inner{max-width:var(--maxw);margin:0 auto;width:100%}
+.seabed-depth{
+  margin:0 0 12px;
+  font-size:12px;
+  letter-spacing:.42em;
+  color:#7fd8f0;
+  opacity:.9;
+}
+.seabed-title{
+  margin:0 0 var(--sp-2);
+  font-size:clamp(38px,6vw,64px);
+  font-weight:700;
+  letter-spacing:-.02em;
+  color:#eaf9ff;
+  text-shadow:0 4px 26px rgba(2,18,32,.7);
+}
+.seabed-lede{
+  margin:0 0 var(--sp-5);
+  max-width:660px;
+  font-size:clamp(14.5px,1.35vw,16.5px);
+  line-height:1.9;
+  color:rgba(226,246,255,.88);
+  text-shadow:0 2px 14px rgba(2,18,32,.75);
+}
+.seabed-lede b{color:#fff;font-weight:640}
+
+.seabed-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(252px,1fr));
+  gap:22px 30px;
+  margin-bottom:52px;
+}
+.seabed-grid h3{
+  margin:0 0 9px;
+  font-size:15.5px;
+  font-weight:640;
+  color:#9fe8d8;
+  text-shadow:0 2px 12px rgba(2,18,32,.8);
+}
+.seabed-grid p{
+  margin:0;
+  font-size:13.7px;
+  line-height:1.85;
+  color:rgba(219,240,250,.82);
+  text-shadow:0 2px 10px rgba(2,18,32,.7);
+}
+.seabed-grid code{
+  font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-size:12.4px;
+  padding:1px 5px;
+  border-radius:4px;
+  background:rgba(255,255,255,.12);
+  color:#cfeaf8;
+}
+.seabed-shot{margin:0 0 34px;padding:14px}
+.seabed-shot img{display:block;width:100%;height:auto;border-radius:16px}
+.seabed-shot figcaption{
+  padding:12px 4px 2px;
+  font-size:13px;
+  color:rgba(219,240,250,.72);
+}
+.seabed-note{
+  margin:0;
+  font-size:13.6px;
+  color:rgba(214,238,250,.72);
+  text-shadow:0 2px 10px rgba(2,18,32,.7);
+}
+.seabed-close{
+  margin-top:44px;
+  padding:26px 28px;
+  border-left:2px solid rgba(127,216,240,.5);
+  background:linear-gradient(90deg, rgba(127,216,240,.10), rgba(127,216,240,0));
+  border-radius:0 14px 14px 0;
+}
+.seabed-close h3{
+  margin:0 0 8px;
+  font-size:13px;
+  letter-spacing:.24em;
+  color:#7fd8f0;
+  font-weight:600;
+}
+.seabed-close p{
+  margin:0;
+  font-size:clamp(14.5px,1.4vw,17px);
+  line-height:1.85;
+  color:rgba(232,248,255,.92);
+  text-shadow:0 2px 12px rgba(2,18,32,.7);
+}
+.seabed-close b{color:#fff;font-weight:680}
+
+/* 浮出水面按钮：JS 挂在 body 上（.seabed 有 transform 会让 fixed 失效） */
+.seabed-exit{
+  position:fixed;
+  right:clamp(20px,4vw,54px);
+  bottom:clamp(20px,4vh,44px);
+  z-index:40;
+  display:none;
+  align-items:center;
+  gap:8px;
+  padding:11px 22px;
+  border-radius:999px;
+  font-size:13.5px;
+  font-weight:600;
+  letter-spacing:.04em;
+  color:#dff4ff;
+  cursor:pointer;
+  background:rgba(8,40,64,.72);
+  border:1px solid rgba(127,216,240,.42);
+  backdrop-filter:blur(14px);
+  -webkit-backdrop-filter:blur(14px);
+  box-shadow:0 10px 30px -14px rgba(0,0,0,.9), inset 0 1px 0 rgba(255,255,255,.12);
+  transition:background .22s, border-color .22s, transform .22s;
+}
+html.at-seabed .seabed-exit{display:inline-flex}
+.seabed-exit:hover{
+  background:rgba(30,110,160,.8);
+  border-color:rgba(127,216,240,.85);
+  transform:translateY(-2px);
+}
+.seabed-exit span{display:inline-block;line-height:1;font-size:15px}
+html.at-seabed .hint{opacity:0}
+html.at-seabed .topbar{--glass-bg:rgba(3,18,32,.55)}
+
+/* ============================================================
+   页脚
+   ============================================================ */
+.footer{padding:34px var(--gutter) 46px}
+.footer-inner{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:14px 26px;
+  padding-top:26px;
+  border-top:1px solid rgba(255,255,255,.12);
+}
+.footer-brand{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:600}
+.footer-brand img{border-radius:6px}
+.footer-nav{display:flex;gap:18px;flex-wrap:wrap;font-size:13.2px}
+.footer-nav a{color:var(--text-dim);text-decoration:none;transition:color .2s}
+.footer-nav a:hover{color:#fff}
+.footer-note{
+  margin:0 0 0 auto;
+  font-size:12.4px;
+  color:var(--text-faint);
+  text-shadow:0 1px 8px rgba(4,24,40,.6);
+}
+
+/* ============================================================
+   滚动提示
+   ============================================================ */
+.hint{
+  position:fixed;
+  left:50%;
+  bottom:26px;
+  transform:translateX(-50%);
+  z-index:15;
+  display:flex;align-items:center;gap:9px;
+  padding:8px 18px;
+  font-size:12.5px;
+  letter-spacing:.06em;
+  color:rgba(242,247,251,.62);
+  background:var(--glass-bg);
+  border:1px solid var(--glass-border);
+  border-radius:999px;
+  backdrop-filter:var(--glass-blur);
+  -webkit-backdrop-filter:var(--glass-blur);
+  transition:opacity .6s ease;
+  pointer-events:none;
+}
+.hint.fade{opacity:0}
+.hint-arrow{
+  display:inline-block;
+  animation:bob 1.7s ease-in-out infinite;
+  color:var(--accent-2);
+}
+@keyframes bob{
+  0%,100%{transform:translateY(-2px);opacity:.55}
+  50%{transform:translateY(2px);opacity:1}
+}
+
+/* ============================================================
+   响应式
+   ============================================================ */
+@media (max-width:900px){
+  .topnav a{padding:6px 11px;font-size:12.5px}
+  .brand-cn{display:none}
+  .hero{padding-top:84px}
+  .glass{border-radius:22px}
+  .blob{filter:blur(70px)}
+  .footer-note{margin-left:0}
+}
+@media (max-width:820px){
+  .car-slide{grid-template-columns:1fr;gap:var(--sp-4)}
+  .car-media img{max-height:36vh}
+  .car-slide h3{font-size:var(--fs-lg)}
+}
+@media (max-width:520px){
+  .topnav a:nth-child(4){display:none}
+  .btn{padding:12px 20px;font-size:13.5px}
+  .grid,.steps,.privacy-grid,.seabed-grid{grid-template-columns:1fr}
+}
+
+/* 无障碍：尊重减少动效 */
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+  html{scroll-behavior:auto}
+  .blob{filter:blur(70px)}
+}
+
+/* 不支持 backdrop-filter 时降级为更实的底色 */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .glass,.brand,.topnav,.btn-ghost,.hint,.carousel,.car-media{
+    background:rgba(8,26,42,.82);
+  }
+}

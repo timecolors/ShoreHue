@@ -30,9 +30,11 @@
                 <Border Style="{StaticResource CardStyle}" Margin="0,0,0,8" Padding="8,6">
                     <StackPanel>
                         <TextBlock Text="{Binding Item[UI_TextAiWidget_411], Source={x:Static loc:LocalizationManager.Instance}}" FontSize="11" Foreground="#8A8A8A" Margin="0,0,0,4"/>
+                        <!-- ★ 去掉 TextTrimming：文字不再被省略号无声砍掉。
+                             高度改成行高的整数倍（8 行 × 16px = 128，与原来 140 的预算相当），
+                             这样超出时裁剪正好落在行间，不会把最后一行切掉一半。 -->
                         <TextBlock x:Name="SourceText" FontSize="12" Foreground="#CCCCCC"
-                                   TextWrapping="Wrap" MaxHeight="140"
-                                   TextTrimming="CharacterEllipsis"/>
+                                   TextWrapping="Wrap" LineHeight="16" MaxHeight="128"/>
                     </StackPanel>
                 </Border>
 

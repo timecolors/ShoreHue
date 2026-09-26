@@ -363,7 +363,7 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-# MSIX �������������ɣ�����⣩
+# MSIX 打包产物（本地产物，不入库）
 packaging/Output/
 packaging/StoreScreenshots/
 

@@ -98,10 +98,10 @@ namespace ShoreHue.UI.Panels
                             Icon = GetFileIcon(target)
                         });
                     }
-                    catch { }
+                    catch { /* 尽力而为：某一条最近文件读不出来就跳过（其余照常列出） */ }
                 }
             }
-            catch { }
+            catch { /* 整个"最近文件"分组取不到 → 该分组为空（其它分组照常） */ }
         }
 
         private void LoadApps()
@@ -130,7 +130,7 @@ namespace ShoreHue.UI.Panels
                     });
                 }
             }
-            catch { }
+            catch { /* 整个"最近应用"分组取不到 → 该分组为空 */ }
         }
 
         private static ImageSource? GetFileIcon(string path)
@@ -151,7 +151,7 @@ namespace ShoreHue.UI.Panels
                 _iconCache[path] = source;
                 return source;
             }
-            catch { return null; }
+            catch { /* 尽力而为（UI 装饰）：取不到图标就显示占位（结果按路径缓存，不会反复失败） */ return null; }
         }
 
         private async void LoadWebs()
@@ -182,7 +182,7 @@ namespace ShoreHue.UI.Panels
                     ShowTab(_tab);
                 }
             }
-            catch { }
+            catch { /* 尽力而为：这次切标签没刷新出来，下次切换/重新打开会重建 */ }
         }
 
         /// <summary>
@@ -228,7 +228,7 @@ namespace ShoreHue.UI.Panels
 
                 return File.Exists(cmd) ? cmd : null;
             }
-            catch { return null; }
+            catch { /* 取不到命令行可执行文件 → 返回 null，调用方按"没有该能力"处理 */ return null; }
         }
 
         private void ShowTab(RecentItemType tab)
@@ -290,7 +290,7 @@ namespace ShoreHue.UI.Panels
                         break;
                 }
             }
-            catch { }
+            catch { /* 尽力而为：这次"最近打开"没记上（只影响排序，不影响这次打开本身） */ }
         }
 
         private void AddWeb_Click(object sender, RoutedEventArgs e)

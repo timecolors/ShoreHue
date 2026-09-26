@@ -8,7 +8,12 @@ namespace ShoreHue.Core.Controllers
     /// </summary>
     public static class EdgeRegionMapping
     {
-        /// <summary>区域 → 边缘名（Top/Bottom/Left/Right；角落返回 Top/Bottom，未知返回空）。</summary>
+        /// <summary>区域 → 边缘名（Top/Bottom/Left/Right）。
+        /// ★ 角落（TopLeft/TopRight/BottomLeft/BottomRight）返回**空串** —— 角落不属于任何单一边，
+        ///   而 GetRegionKey 正是靠这个空串把角落当作独立区域（返回枚举名）处理。
+        ///   所以日志里出现 `edge=` 为空只表示"这次触发来自角落"，不是异常。
+        ///   （旧注释写成"角落返回 Top/Bottom"，与实现和测试都不符，曾据此误判过一个 bug。）
+        /// 未知值同样返回空。</summary>
         public static string GetEdgeName(EdgeRegion r) => r switch
         {
             EdgeRegion.Top_Left or EdgeRegion.Top_Center or EdgeRegion.Top_Right => "Top",

@@ -95,6 +95,33 @@
   <data name="Toast_NewVersion" xml:space="preserve">
     <value>发现新版本 v{0}，点击下载更新</value>
   </data>
+  <data name="Set_Clip_KeyboardNav" xml:space="preserve">
+    <value>剪贴板：键盘操作（↑↓ 选择 / Enter 复制 / 数字键快选 / Del 删除）</value>
+  </data>
+  <data name="Set_Clip_ShowSource" xml:space="preserve">
+    <value>剪贴板：显示来源应用（这条从哪个程序复制来的）</value>
+  </data>
+  <data name="Set_TextAi_TargetLang" xml:space="preserve">
+    <value>目标语言</value>
+  </data>
+  <data name="Set_TextAi_TargetLangTip" xml:space="preserve">
+    <value>留空 = 自动判中英（中文→英、其他→中）</value>
+  </data>
+  <data name="TextAi_History" xml:space="preserve">
+    <value>历史</value>
+  </data>
+  <data name="TextAi_HistoryTip" xml:space="preserve">
+    <value>查看最近翻译（点一条即复制）</value>
+  </data>
+  <data name="TextAi_HistoryEmpty" xml:space="preserve">
+    <value>（暂无翻译历史）</value>
+  </data>
+  <data name="Calc_HistoryEmpty" xml:space="preserve">
+    <value>（暂无历史记录）</value>
+  </data>
+  <data name="Clip_CopiedFrom" xml:space="preserve">
+    <value>已复制 · 来自 {0}</value>
+  </data>
   <data name="Clip_Copied" xml:space="preserve">
     <value>已复制</value>
   </data>
@@ -250,9 +277,6 @@
   </data>
   <data name="UI_MediaControlView_46" xml:space="preserve">
     <value>下一首</value>
-  </data>
-  <data name="UI_MediaControlView_45" xml:space="preserve">
-    <value>播放/暂停</value>
   </data>
   <data name="UI_MediaControlView_44" xml:space="preserve">
     <value>上一首</value>
@@ -861,10 +885,10 @@
     <value>剪贴板历史</value>
   </data>
   <data name="UI_SettingsWindow_329" xml:space="preserve">
-    <value>剪贴板历史记录的最大保存条数，以及列表中预览显示的字符数量。</value>
+    <value>剪贴板历史记录的最大保存条数，以及列表中每条最多显示多少行（超出只显示这么多行，不再用省略号砍掉文字）。</value>
   </data>
   <data name="UI_SettingsWindow_328" xml:space="preserve">
-    <value>预览字符</value>
+    <value>预览行数</value>
   </data>
   <data name="UI_SettingsWindow_374" xml:space="preserve">
     <value>海岸线内置 AI 助手：对话、翻译、总结、解释代码等。你的 API Key 只保存在本机（ai.json），请求直接发往你选择的模型服务商，不经任何中间服务器。</value>
@@ -938,19 +962,6 @@
   <data name="UI_SettingsWindow_355" xml:space="preserve">
     <value>面板尺寸变化/区域切换/跨边飞行时的动画效果</value>
   </data>
-  <data name="UI_SettingsWindow_352" xml:space="preserve">
-    <value>动画时长</value>
-  </data>
-  <data name="UI_SettingsWindow_353" xml:space="preserve">
-    <value>线性：匀速运动，无缓动效果
-立方缓动：先快后慢，平滑自然（推荐）
-平方缓动：比立方更柔和，变化更平缓
-四次方缓动：非常平滑，适合长距离动画
-五次方缓动：极其平滑，几乎察觉不到加速
-弹性缓动：带有弹性振荡效果，生动活泼
-回退缓动：略微过冲再回正，有弹跳感
-弹跳缓动：落地弹跳效果，适合结束动作</value>
-  </data>
   <data name="UI_SettingsWindow_350" xml:space="preserve">
     <value>回退缓动</value>
   </data>
@@ -1011,9 +1022,6 @@
   </data>
   <data name="UI_SettingsWindow_344" xml:space="preserve">
     <value>线性</value>
-  </data>
-  <data name="UI_SettingsWindow_343" xml:space="preserve">
-    <value>缓动类型</value>
   </data>
   <data name="UI_SettingsWindow_342" xml:space="preserve">
     <value>面板从边缘滑入/滑出时的动画效果</value>
@@ -1222,17 +1230,11 @@
   <data name="UI_OnboardingWindow_95" xml:space="preserve">
     <value>开启后，鼠标移出面板时，面板会跟着鼠标走（像潮水被月亮牵引）；鼠标停下，面板就停在鼠标附近，适合把面板随手带到需要的位置。</value>
   </data>
-  <data name="UI_OnboardingWindow_94" xml:space="preserve">
-    <value>引潮模式</value>
-  </data>
   <data name="UI_OnboardingWindow_93" xml:space="preserve">
     <value>值得了解的设置特性</value>
   </data>
   <data name="UI_OnboardingWindow_92" xml:space="preserve">
     <value>设置里配置 GitHub 仓库后，新版本会在通知坞提醒，点击即可下载更新。</value>
-  </data>
-  <data name="UI_OnboardingWindow_91" xml:space="preserve">
-    <value>自动更新</value>
   </data>
   <data name="UI_OnboardingWindow_90" xml:space="preserve">
     <value>清除</value>
@@ -1245,9 +1247,6 @@
   </data>
   <data name="UI_OnboardingWindow_86" xml:space="preserve">
     <value>随时呼出 / 隐藏面板，不用碰屏幕边缘。</value>
-  </data>
-  <data name="UI_OnboardingWindow_87" xml:space="preserve">
-    <value>划词翻译快捷键</value>
   </data>
   <data name="UI_OnboardingWindow_84" xml:space="preserve">
     <value>左键点击：切换勿扰模式；右键：打开设置 / 刷新 / 退出。</value>
@@ -1275,9 +1274,6 @@
   </data>
   <data name="UI_OnboardingWindow_79" xml:space="preserve">
     <value>把正在运行的窗口标签拖到面板左上角的图标，松开即固定为快捷方式（拖放时图标会变成 ＋）。</value>
-  </data>
-  <data name="UI_OnboardingWindow_78" xml:space="preserve">
-    <value>固定应用</value>
   </data>
   <data name="UI_OnboardingWindow_71" xml:space="preserve">
     <value>上 / 下 / 左 / 右边缘</value>
@@ -1327,17 +1323,8 @@
   <data name="UI_OnboardingWindow_64" xml:space="preserve">
     <value>设置特性</value>
   </data>
-  <data name="UI_OnboardingWindow_65" xml:space="preserve">
-    <value>开始使用</value>
-  </data>
-  <data name="UI_OnboardingWindow_66" xml:space="preserve">
-    <value>欢迎使用 ShoreHue 海岸线</value>
-  </data>
   <data name="UI_OnboardingWindow_67" xml:space="preserve">
     <value>一个贴合 Windows 的桌面边缘面板工具。</value>
-  </data>
-  <data name="UI_OnboardingWindow_59" xml:space="preserve">
-    <value>ShoreHue 海岸线</value>
   </data>
   <data name="UI_OnboardingWindow_58" xml:space="preserve">
     <value>ShoreHue 海岸线 - 欢迎</value>
@@ -1464,6 +1451,87 @@
   </data>
   <data name="Note_DeleteConfirm" xml:space="preserve">
     <value>确定要删除便签 "{0}" 吗？</value>
+  </data>
+  <data name="Note_CloseTab" xml:space="preserve">
+    <value>关闭这张便签</value>
+  </data>
+  <data name="Note_ToggleTitle" xml:space="preserve">
+    <value>标</value>
+  </data>
+  <data name="Note_Color" xml:space="preserve">
+    <value>色</value>
+  </data>
+  <data name="Note_EmptyHint" xml:space="preserve">
+    <value>还没有便签。点上面的「＋」新建；Ctrl+F 搜索；右键便签可置顶/换色；切换键在「设置 → 面板 → 便签」里配。</value>
+  </data>
+  <data name="Note_Pin" xml:space="preserve">
+    <value>置顶</value>
+  </data>
+  <data name="Note_Unpin" xml:space="preserve">
+    <value>取消置顶</value>
+  </data>
+  <data name="Note_Undo" xml:space="preserve">
+    <value>撤销</value>
+  </data>
+  <data name="Note_Deleted" xml:space="preserve">
+    <value>已删除「{0}」（8 秒内可撤销）</value>
+  </data>
+  <data name="Note_FollowPanel" xml:space="preserve">
+    <value>跟随面板背景</value>
+  </data>
+  <data name="Note_MoreColors" xml:space="preserve">
+    <value>更多颜色…</value>
+  </data>
+  <data name="Note_Untitled" xml:space="preserve">
+    <value>空便签</value>
+  </data>
+  <data name="Note_StatusFiltered" xml:space="preserve">
+    <value>当前便签不在搜索结果里（命中 {1} 条）</value>
+  </data>
+  <data name="Note_EditedAt" xml:space="preserve">
+    <value>已编辑 {0}</value>
+  </data>
+  <data name="Note_SearchTip" xml:space="preserve">
+    <value>搜索便签（Ctrl+F）：匹配标题与正文</value>
+  </data>
+  <data name="Note_NewTip" xml:space="preserve">
+    <value>新建便签（Ctrl+N）</value>
+  </data>
+  <data name="Note_Rename" xml:space="preserve">
+    <value>重命名</value>
+  </data>
+  <data name="Note_Recolor" xml:space="preserve">
+    <value>换个颜色</value>
+  </data>
+  <data name="Note_Duplicate" xml:space="preserve">
+    <value>复制一份</value>
+  </data>
+  <data name="Note_CopySuffix" xml:space="preserve">
+    <value>副本</value>
+  </data>
+  <data name="Note_RenameHint" xml:space="preserve">
+    <value>在标题框里改名，改完点别处即可（已自动保存）</value>
+  </data>
+  <data name="Set_NoteHotkeys_Title" xml:space="preserve">
+    <value>便签快捷键（在便签面板内生效）</value>
+  </data>
+  <data name="Set_NoteHotkey_New" xml:space="preserve">
+    <value>新建便签</value>
+  </data>
+  <data name="Set_NoteHotkey_Delete" xml:space="preserve">
+    <value>删除当前便签</value>
+  </data>
+  <data name="Set_NoteHotkey_Next" xml:space="preserve">
+    <value>切到下一个便签</value>
+  </data>
+  <data name="Set_NoteHotkey_Hint" xml:space="preserve">
+    <value>点进输入框后直接按组合键即可；Backspace 或 Esc 清除。快捷键只在便签面板里生效，不会占用系统全局热键。</value>
+  </data>
+  <data name="Set_NoteHotkey_NotSet" xml:space="preserve">
+    <value>未设置（该项没有快捷键）。</value>
+  </data>
+  <data name="Set_NoteHotkey_Conflict" xml:space="preserve">
+    <value>⚠ 与便签里的另一个快捷键重复，请更换。</value>
   </data>
   <data name="Set_HideDelayGlobal" xml:space="preserve">
     <value>全局隐藏延时</value>
@@ -2002,9 +2070,6 @@
   <data name="UI_OnboardingWindow_107" xml:space="preserve">
     <value>把鼠标移到屏幕边缘试试吧。所有操作都能在设置里调整，也可以随时重新查看本引导。</value>
   </data>
-  <data name="UI_OnboardingWindow_106" xml:space="preserve">
-    <value>都准备好了</value>
-  </data>
   <data name="UI_OnboardingWindow_105" xml:space="preserve">
     <value>呼出/隐藏动画、缓动类型、圆角、透明度、图标大小都可以调；Win11 下还支持 Mica 毛玻璃背景。</value>
   </data>
@@ -2015,9 +2080,6 @@
     <value>左边缘中间呼出 AI 对话面板：流式回复、快捷指令（翻译 / 总结 / 解释代码 / 润色）、多会话管理。
 把图片文件拖到面板左侧的海岸线图标，即可把图片发给 AI 分析（需模型支持识图，如 gpt-4o、glm-4v、qwen-vl 等）。
 在 设置 → AI 中填一个 OpenAI 兼容的服务商（DeepSeek、Ollama 本地、SiliconFlow 等）与模型即可使用；API Key 只保存在本机，请求直连你选择的服务商。</value>
-  </data>
-  <data name="UI_OnboardingWindow_102" xml:space="preserve">
-    <value>AI 助手</value>
   </data>
   <data name="UI_OnboardingWindow_101" xml:space="preserve">
     <value>面板顶部的状态栏显示时间、CPU、内存、音量等信息；把鼠标悬停在音量百分比上滚动滚轮，即可直接调大调小音量。</value>
@@ -2279,7 +2341,7 @@
     <value>自定义小组件</value>
   </data>
   <data name="Ob_Widgets_Card3Text" xml:space="preserve">
-    <value>新建小组件：在 设置 → 面板 → 小组件/组件市场 中新建，或用 AI 生成 C# 代码后粘贴，内置编译器即时编译预览，保存即生效。开启编程模式后，小组件代码以文件存放在 海床 的「面板/小组件」文件夹，可直接编辑。</value>
+    <value>新建小组件：在 设置 → 面板 → 小组件/组件市场 中新建，或用 AI 生成 C# 代码后粘贴，内置编译器即时编译预览，保存即生效。开启编程模式后，小组件代码以文件存放在 海床 的「面板」文件夹，可直接编辑。</value>
   </data>
   <data name="Ob_Widgets_Tip" xml:space="preserve">
     <value>小组件显示/隐藏可在 设置 → 面板 → 小组件 中逐项勾选。</value>
@@ -2390,7 +2452,7 @@
     <value>海床：设置与功能都是文件</value>
   </data>
   <data name="Ob_Customize_Card4Text" xml:space="preserve">
-    <value>在 设置 → 通用 勾选「编程模式（海床）」后，设置窗口会新增「海床」页签：全部设置按 常规/区域/面板/动画 四类组织为真实文件夹与 JSON 文件，小组件代码放在「面板/小组件」里可直接编辑、保存即时生效——设置本身就是一个可视化的文件资源管理器，树里看到什么，文件夹里就有什么。</value>
+    <value>在 设置 → 通用 勾选「编程模式（海床）」后，设置窗口会新增「海床」页签：全部设置按 常规/区域/面板/动画 四类组织为真实文件夹与 JSON 文件，小组件代码放在「面板」里可直接编辑、保存即时生效——设置本身就是一个可视化的文件资源管理器，树里看到什么，文件夹里就有什么。</value>
   </data>
   <data name="Ob_Map_RingTitle" xml:space="preserve">
     <value>不用鼠标：数字环（修饰键 + 数字 1-9）</value>
@@ -2662,5 +2724,119 @@
   </data>
   <data name="Set_Menu_AiSettings" xml:space="preserve">
     <value>AI 设置</value>
+  </data>
+  <data name="Capture_NoSelection" xml:space="preserve">
+    <value>未读取到选中文本</value>
+  </data>
+  <data name="Pip_MirrorShort" xml:space="preserve">
+    <value>镜</value>
+  </data>
+  <data name="Pip_EmbedShort" xml:space="preserve">
+    <value>嵌</value>
+  </data>
+  <data name="Quick_Muted" xml:space="preserve">
+    <value>静</value>
+  </data>
+  <data name="Quick_Volume" xml:space="preserve">
+    <value>音</value>
+  </data>
+  <data name="Web_Open" xml:space="preserve">
+    <value>打开</value>
+  </data>
+  <data name="Web_InitFailed" xml:space="preserve">
+    <value>WebView2 初始化失败：</value>
+  </data>
+  <data name="Web_OnlyHttp" xml:space="preserve">
+    <value>仅支持 http/https 网址</value>
+  </data>
+  <data name="Web_NavFailed" xml:space="preserve">
+    <value>导航失败：</value>
+  </data>
+  <data name="Ai_Timeout" xml:space="preserve">
+    <value>连接超时</value>
+  </data>
+  <data name="Ai_KeyEncryptFailed" xml:space="preserve">
+    <value>密钥加密失败，本次设置未保存（原密钥保持不变）</value>
+  </data>
+  <data name="Ai_SaveFailed" xml:space="preserve">
+    <value>保存 AI 配置失败：</value>
+  </data>
+  <data name="Ai_SaveDialogFilter" xml:space="preserve">
+    <value>Markdown 文件 (*.md)|*.md|文本文件 (*.txt)|*.txt</value>
+  </data>
+  <data name="Ai_ReplyFileName" xml:space="preserve">
+    <value>AI 回复.md</value>
+  </data>
+  <data name="Toast_NoHash" xml:space="preserve">
+    <value>此版本未提供完整性校验值，已阻止自动安装；请到 Releases 页面手动下载</value>
+  </data>
+  <data name="Toast_HashMismatch" xml:space="preserve">
+    <value>下载文件的校验值不匹配，已阻止安装（可能被篡改或下载损坏）；请重新下载或到 Releases 手动获取</value>
+  </data>
+  <data name="Update_NoHashAskTitle" xml:space="preserve">
+    <value>安装确认</value>
+  </data>
+  <data name="Update_NoHashAsk" xml:space="preserve">
+    <value>这个版本没有提供完整性校验值，无法验证下载的文件是否与发布者一致（可能被篡改）。`n`n仍要继续安装吗？</value>
+  </data>
+  <data name="Perm_Label_None" xml:space="preserve">
+    <value>无权限</value>
+  </data>
+  <data name="Perm_Label_network" xml:space="preserve">
+    <value>联网</value>
+  </data>
+  <data name="Perm_Label_clipboard" xml:space="preserve">
+    <value>剪贴板</value>
+  </data>
+  <data name="Perm_Label_file" xml:space="preserve">
+    <value>本地文件</value>
+  </data>
+  <data name="Perm_Label_process" xml:space="preserve">
+    <value>进程执行</value>
+  </data>
+  <data name="Perm_Label_system" xml:space="preserve">
+    <value>系统信息</value>
+  </data>
+  <data name="Perm_Label_window" xml:space="preserve">
+    <value>窗口操作</value>
+  </data>
+  <data name="Perm_Label_screen" xml:space="preserve">
+    <value>屏幕捕获</value>
+  </data>
+  <data name="Perm_Label_device" xml:space="preserve">
+    <value>硬件开关</value>
+  </data>
+  <data name="Perm_Consequence_network" xml:space="preserve">
+    <value>可以把数据发送到互联网</value>
+  </data>
+  <data name="Perm_Consequence_clipboard" xml:space="preserve">
+    <value>可以读取和写入你的剪贴板内容</value>
+  </data>
+  <data name="Perm_Consequence_file" xml:space="preserve">
+    <value>可以读取你电脑上的文件</value>
+  </data>
+  <data name="Perm_Consequence_process" xml:space="preserve">
+    <value>可以启动其他程序</value>
+  </data>
+  <data name="Perm_Consequence_system" xml:space="preserve">
+    <value>可以读取系统信息（环境变量等）</value>
+  </data>
+  <data name="Perm_Consequence_window" xml:space="preserve">
+    <value>可以操作其他程序的窗口、模拟键盘鼠标</value>
+  </data>
+  <data name="Perm_Consequence_screen" xml:space="preserve">
+    <value>可以截取你的屏幕</value>
+  </data>
+  <data name="Perm_Consequence_device" xml:space="preserve">
+    <value>可以修改屏幕亮度、开关蓝牙/Wi-Fi 与移动热点</value>
+  </data>
+  <data name="Perm_Unknown" xml:space="preserve">
+    <value>（未知能力 {0}）</value>
+  </data>
+  <data name="Tray_SafeMode" xml:space="preserve">
+    <value>下次以安全模式启动（不加载插件）</value>
+  </data>
+  <data name="Tray_ClearBreaker" xml:space="preserve">
+    <value>解除插件熔断</value>
   </data>
 </root>

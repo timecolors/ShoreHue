@@ -65,12 +65,12 @@
         <Border Grid.Row="1" Background="#1E1E1E" Padding="6,4">
             <StackPanel Orientation="Horizontal">
                 <Button x:Name="BtnMirrorPick"
-                        Content="镜"
+                        Content="{Binding Item[Pip_MirrorShort], Source={x:Static loc:LocalizationManager.Instance}}"
                         Style="{StaticResource IconButton}"
                         Click="MirrorPick_Click"
                         ToolTip="{Binding Item[UI_PanelMediaPlayer_52], Source={x:Static loc:LocalizationManager.Instance}}"/>
                 <Button x:Name="BtnEmbedPick"
-                        Content="嵌"
+                        Content="{Binding Item[Pip_EmbedShort], Source={x:Static loc:LocalizationManager.Instance}}"
                         Style="{StaticResource IconButton}"
                         Margin="4,0,0,0"
                         Click="EmbedPick_Click"
