@@ -294,6 +294,8 @@ namespace ScreenshotGen
         public void RemoveItems(IEnumerable<ClipboardManager.ClipboardItem> items) { }
         public void ClearAll() { }
         public void CopyToClipboard(ClipboardManager.ClipboardItem item) { }
+        /// <summary>截图工具用不到"粘贴为纯文本"，但接口成员必须实现（CI 会编译本工具）。</summary>
+        public void CopyToClipboardPlainText(ClipboardManager.ClipboardItem item) { }
         public bool SaveDroppedFile(string sourcePath, string targetFolder) => false;
         public void SetPinned(ClipboardManager.ClipboardItem item, bool pinned) { }
     }
