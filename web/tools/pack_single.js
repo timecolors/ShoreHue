@@ -2,7 +2,12 @@
    ------------------------------------------------------------
    把 styles.css / 3 个 js / 两个 logo 全部内联进 index.html，
    并把指向 ../docs 的死链换成 GitHub 地址。
-   产出：web/ShoreHue-官网.html（双击即可打开，可单独发给别人）
+   产出两份（内容完全一致，同一份 html 变量写出）：
+     1) web/ShoreHue-官网.html   —— 双击即可打开，可单独发给别人
+     2) docs/index.html          —— GitHub Pages 从 master/docs 发布，
+                                    这份让 https://timecolors.github.io/ShoreHue/ 直接能看
+   为什么要有第 2 份：Pages 只会发布仓库里的文件，不能指向 web/；
+   一份源 → 一次打包 → 两处落地，避免两边各存一份而慢慢不一致。
    用法：node web/tools/pack_single.js
 */
 const fs = require('fs');
@@ -11,6 +16,7 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..', '..');      // D:\海岸线
 const WEB = path.join(ROOT, 'web');
 const OUT = path.join(WEB, 'ShoreHue-官网.html');
+const OUT_PAGES = path.join(ROOT, 'docs', 'index.html');
 
 let html = fs.readFileSync(path.join(WEB, 'index.html'), 'utf8');
 const report = [];
@@ -82,7 +88,9 @@ if (fail.length) {
 }
 
 fs.writeFileSync(OUT, html, 'utf8');
+fs.writeFileSync(OUT_PAGES, html, 'utf8');
 console.log('打包完成：' + OUT);
+console.log('          ' + OUT_PAGES + '  （GitHub Pages 用）');
 report.forEach(function (x) { console.log('  · ' + x); });
 console.log('  · 产物大小 ' + (Buffer.byteLength(html, 'utf8') / 1024).toFixed(1) + ' KB');
 console.log('  · 残留本地引用 0 个 ✓');

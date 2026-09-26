@@ -114,7 +114,8 @@ namespace ShoreHue.Core.Calculators
         /// </summary>
         public (double width, double height) CalculateTargetSize(
             double contentWidth, double contentHeight, string mode,
-            double goldenRatio = 1.618, double horizontalLayoutThreshold = 0.43)
+            double goldenRatio = 1.618, double horizontalLayoutThreshold = 0.43,
+            double? workAreaWidth = null, double? workAreaHeight = null)
         {
             // ★★★ 确保传入的内容尺寸有效 ★★★
             if (contentWidth < 10) contentWidth = 280;
@@ -131,10 +132,24 @@ namespace ShoreHue.Core.Calculators
             double targetWidth = Math.Max(minWidth, rawWidth);
             double targetHeight = Math.Max(minHeight, rawHeight);
 
-            var wa = ScreenMetrics.GetCachedScreenForWindow(
-                _window.Left, _window.Top, _window.Width, _window.Height);
-            double screenW = wa.Width;
-            double screenH = wa.Height;
+            // ★ 工作区尺寸决定限幅上限：默认读真实屏幕，但**允许调用方传入**。
+            //   为什么必须留这个口子（2026-09-26 实测）：CI 的虚拟桌面只有 1024×768 之类，
+            //   不注入的话目标尺寸会被钳到工作区里 —— 黄金比、最小尺寸这些断言就变成"看运气"，
+            //   表现是本机全绿、CI 红 3 条。传入的尺寸 = "这台机器的屏幕有多大"，
+            //   限幅逻辑本身不动（真机上该钳还得钳）。
+            double screenW, screenH;
+            if (workAreaWidth is > 0 && workAreaHeight is > 0)
+            {
+                screenW = workAreaWidth.Value;
+                screenH = workAreaHeight.Value;
+            }
+            else
+            {
+                var wa = ScreenMetrics.GetCachedScreenForWindow(
+                    _window.Left, _window.Top, _window.Width, _window.Height);
+                screenW = wa.Width;
+                screenH = wa.Height;
+            }
 
             if (mode == "Widget")
             {

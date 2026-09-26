@@ -37,11 +37,18 @@ public class SizeGoldenRatioTests
         return result;
     }
 
+    /// <summary>测试注入的工作区尺寸：**必须大到不会盖过被断言的目标尺寸**。
+    /// ★ 不注入就会红（2026-09-26 实际发生）：CI 的虚拟桌面很小，
+    ///   `CalculateTargetSize` 会把目标钳到工作区的 2/5 宽、2/3 高之内，
+    ///   于是黄金比断言算出来是 1.5 / 1.17，本机（大屏）却全绿。</summary>
+    private const double TestScreenW = 3840;
+    private const double TestScreenH = 2160;
+
     private static (double w, double h) Target(double cw, double ch) => RunSta(() =>
     {
         // 不 Show 的窗口即可：CalculateTargetSize 只读它的 Left/Top/Width/Height 用来找屏幕
         var calc = new SizeCalculator(new Window(), new ContentControl());
-        return calc.CalculateTargetSize(cw, ch, "Widget", Phi, Threshold);
+        return calc.CalculateTargetSize(cw, ch, "Widget", Phi, Threshold, TestScreenW, TestScreenH);
     });
 
     /// <summary>黄金比的正确不变量：**长边 / 短边 ≈ φ**。
@@ -86,5 +93,19 @@ public class SizeGoldenRatioTests
         // 但内容需要 600+90=690 高，所以只可能维持 690，绝不能压到 247。
         var (_, h) = Target(400, 600);
         Assert.True(h >= 600, $"目标高 {h:F0} 被压到内容所需之下（应 ≥ 600）");
+    }
+
+    [Fact]
+    public void 屏幕小时被工作区钳制_这不是黄金比失效()
+    {
+        // 与上面几条互补：小屏上"没达成 φ"是**正确行为**（不能超出工作区），
+        // 把这条也钉住，免得以后有人为了让黄金比断言通过而把限幅删掉。
+        var (w, h) = RunSta(() =>
+        {
+            var calc = new SizeCalculator(new Window(), new ContentControl());
+            return calc.CalculateTargetSize(800, 200, "Widget", Phi, Threshold, 1024, 768);
+        });
+        Assert.True(w <= 1024 * 2.0 / 5.0 + 0.01, $"宽度 {w:F0} 超出了小屏工作区的 2/5（应 ≤ 410）");
+        Assert.True(h <= 768 * 2.0 / 3.0 + 0.01, $"高度 {h:F0} 超出了小屏工作区的 2/3（应 ≤ 512）");
     }
 }

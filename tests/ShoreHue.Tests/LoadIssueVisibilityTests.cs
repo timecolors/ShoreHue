@@ -64,13 +64,22 @@ namespace ShoreHue.Tests
         [Fact]
         public void 权限后果文案覆盖全部权限类别()
         {
+            // ★ 不要断言具体的中文/英文文案：CI 的语言是 en-US，本机是 zh-CN，
+            //   写死"互联网"就会变成"只在开发机绿"的假测试（2026-09-26 CI 实际红过一次）。
+            //   这里改成**拿同一个来源做对照**，任何语言下都成立。
+            string unknownLabel = WidgetPermissions.ConsequenceLabel("这不是一个真实权限");
+
             foreach (var p in new[] { "network", "clipboard", "file", "process", "system", "window", "screen" })
             {
                 string consequence = WidgetPermissions.ConsequenceLabel(p);
                 Assert.False(string.IsNullOrWhiteSpace(consequence));
-                Assert.DoesNotContain("未知能力", consequence);
+                // 已知权限必须给出**专属**文案，而不是落到未知能力兜底
+                Assert.NotEqual(unknownLabel, consequence);
             }
-            Assert.Contains("互联网", WidgetPermissions.DescribeConsequences(new List<string> { "network" }));
+
+            // 摘要里必须真的带上该权限的后果文案（同样用同一个来源比对）
+            string network = WidgetPermissions.ConsequenceLabel("network");
+            Assert.Contains(network, WidgetPermissions.DescribeConsequences(new List<string> { "network" }));
             Assert.Equal("", WidgetPermissions.DescribeConsequences(new List<string>()));
         }
     }
